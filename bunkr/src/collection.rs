@@ -450,6 +450,51 @@ mod tests {
         let found = collection.find_by_id(&non_existent_id).unwrap();
         assert!(found.is_none());
     }
+
+    #[test]
+    fn test_find_all() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert multiple documents
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Find all documents
+        let empty_query = Value::Object(std::collections::HashMap::new());
+        let mut iter = collection.find(empty_query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let doc = result.unwrap();
+            if let Value::Object(map) = doc {
+                assert!(map.contains_key("name"));
+                count += 1;
+            }
+        }
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_find_invalid_query() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Try to use a non-empty query (not supported yet)
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        
+        let result = collection.find(query);
+        assert!(result.is_err());
+    }
 }
 
 #[cfg(test)]
