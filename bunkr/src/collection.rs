@@ -449,6 +449,135 @@ impl Collection {
         self.page_manager.flush()?;
         Ok(updated_count)
     }
+
+    /// Delete a single document matching the query
+    ///
+    /// Returns the number of documents deleted (0 or 1).
+    pub fn delete_one(&mut self, filter: Value) -> Result<u64> {
+        use crate::query::{Query, matcher};
+        use crate::storage::find_document_by_id;
+        
+        // Parse filter
+        let filter_query = Query::from_value(filter)?;
+        
+        // Flush pending writes
+        self.page_manager.flush()?;
+        
+        // Find first matching document
+        let mut iter = self.iter()?;
+        if let Some(Ok(doc)) = iter.next() {
+            // Check if it matches the filter
+            if matcher::matches(&doc, &filter_query)? {
+                // Extract _id
+                let doc_id = if let Value::Object(ref map) = doc {
+                    if let Some(Value::String(id_str)) = map.get("_id") {
+                        id_str.parse().ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
+                if let Some(id) = doc_id {
+                    // Find the document's page
+                    let file = std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&self.file_path)
+                        .map_err(Error::Io)?;
+                    let mut page_manager = PageManager::from_file(file)?;
+                    
+                    if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
+                        // Get all page IDs in the chain
+                        let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
+                        let mut page_ids = vec![page_id];
+                        let mut current = page.header.next_page;
+                        const NO_NEXT_PAGE: PageId = u32::MAX;
+                        while current != NO_NEXT_PAGE {
+                            page_ids.push(current);
+                            let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
+                            current = next_page.header.next_page;
+                        }
+                        
+                        // Deallocate all pages
+                        for pid in &page_ids {
+                            page_manager.deallocate_page(*pid)?;
+                        }
+                        
+                        self.page_manager.flush()?;
+                        return Ok(1);
+                    }
+                }
+            }
+        }
+        
+        Ok(0)
+    }
+
+    /// Delete multiple documents matching the query
+    ///
+    /// Returns the number of documents deleted.
+    pub fn delete_many(&mut self, filter: Value) -> Result<u64> {
+        use crate::query::{Query, matcher};
+        use crate::storage::find_document_by_id;
+        
+        // Parse filter
+        let filter_query = Query::from_value(filter)?;
+        
+        // Flush pending writes
+        self.page_manager.flush()?;
+        
+        let mut deleted_count = 0u64;
+        let mut iter = self.iter()?;
+        
+        // Collect all matching document IDs
+        let mut to_delete: Vec<ObjectId> = Vec::new();
+        while let Some(Ok(doc)) = iter.next() {
+            if matcher::matches(&doc, &filter_query)? {
+                if let Value::Object(ref map) = doc {
+                    if let Some(Value::String(id_str)) = map.get("_id") {
+                        if let Ok(id) = id_str.parse() {
+                            to_delete.push(id);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Delete each document
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.file_path)
+            .map_err(Error::Io)?;
+        let mut page_manager = PageManager::from_file(file)?;
+        
+        for id in to_delete {
+            if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
+                // Get all page IDs in chain
+                let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
+                let mut page_ids = vec![page_id];
+                let mut current = page.header.next_page;
+                const NO_NEXT_PAGE: PageId = u32::MAX;
+                while current != NO_NEXT_PAGE {
+                    page_ids.push(current);
+                    let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
+                    current = next_page.header.next_page;
+                }
+                
+                // Deallocate all pages
+                for pid in &page_ids {
+                    page_manager.deallocate_page(*pid)?;
+                }
+                
+                deleted_count += 1;
+            }
+        }
+        
+        self.page_manager.flush()?;
+        Ok(deleted_count)
+    }
 }
 
 #[cfg(test)]
