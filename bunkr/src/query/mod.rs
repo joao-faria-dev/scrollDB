@@ -5,6 +5,7 @@ pub mod path;
 pub mod matcher;
 pub mod operators;
 pub mod update;
+pub mod text;
 
 /// Query structure for matching documents
 #[derive(Debug, Clone)]
