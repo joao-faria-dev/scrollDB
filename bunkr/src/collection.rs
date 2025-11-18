@@ -346,9 +346,9 @@ impl Collection {
         // Flush pending writes
         self.page_manager.flush()?;
         
-        // Find first matching document
+        // Find first matching document by iterating through all documents
         let mut iter = self.iter()?;
-        if let Some(Ok(mut doc)) = iter.next() {
+        while let Some(Ok(mut doc)) = iter.next() {
             // Check if it matches the filter
             if matcher::matches(&doc, &filter_query)? {
                 // Extract _id before modifying
@@ -540,9 +540,9 @@ impl Collection {
         // Flush pending writes
         self.page_manager.flush()?;
         
-        // Find first matching document
+        // Find first matching document by iterating through all documents
         let mut iter = self.iter()?;
-        if let Some(Ok(doc)) = iter.next() {
+        while let Some(Ok(doc)) = iter.next() {
             // Check if it matches the filter
             if matcher::matches(&doc, &filter_query)? {
                 // Extract _id
