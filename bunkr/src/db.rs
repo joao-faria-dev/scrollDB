@@ -35,6 +35,14 @@ impl Database {
         };
 
         if file_exists {
+            // Check if file is empty
+            let metadata = file.metadata().map_err(Error::Io)?;
+            if metadata.len() == 0 {
+                return Err(Error::CorruptedDatabase {
+                    reason: "File exists but is empty".to_string(),
+                });
+            }
+
             // Validate existing file
             let header = Header::read_from(&mut file)?;
             header.validate()?;
@@ -48,6 +56,11 @@ impl Database {
             path,
             file: Some(file),
         })
+    }
+
+    /// Check if the database is currently open
+    pub fn is_open(&self) -> bool {
+        self.file.is_some()
     }
 
     /// Close the database
@@ -72,6 +85,7 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]
@@ -101,5 +115,74 @@ mod tests {
         // Reopen database
         let db2 = Database::open(&path).unwrap();
         db2.close().unwrap();
+    }
+
+    #[test]
+    fn test_is_open() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        let db = Database::open(&path).unwrap();
+        assert!(db.is_open());
+        db.close().unwrap();
+    }
+
+    #[test]
+    fn test_open_empty_file_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        // Create empty file
+        std::fs::File::create(&path).unwrap();
+
+        let result = Database::open(&path);
+        assert!(result.is_err());
+        if let Err(Error::CorruptedDatabase { reason }) = result {
+            assert!(reason.contains("empty"));
+        } else {
+            panic!("Expected CorruptedDatabase error");
+        }
+    }
+
+    #[test]
+    fn test_open_corrupted_file_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        // Create file with invalid magic bytes
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"INVALID\0").unwrap();
+        file.write_all(&0u32.to_le_bytes()).unwrap();
+        file.write_all(&[0u8; 20]).unwrap();
+        drop(file);
+
+        let result = Database::open(&path);
+        assert!(result.is_err());
+        if let Err(Error::InvalidFileFormat { .. }) = result {
+            // Expected error
+        } else {
+            panic!("Expected InvalidFileFormat error");
+        }
+    }
+
+    #[test]
+    fn test_open_invalid_version_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        // Create file with valid magic but invalid version
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(&crate::storage::MAGIC_BYTES).unwrap();
+        file.write_all(&999u32.to_le_bytes()).unwrap(); // Invalid version
+        file.write_all(&[0u8; 20]).unwrap();
+        drop(file);
+
+        let result = Database::open(&path);
+        assert!(result.is_err());
+        if let Err(Error::CorruptedDatabase { reason }) = result {
+            assert!(reason.contains("version"));
+        } else {
+            panic!("Expected CorruptedDatabase error");
+        }
     }
 }
