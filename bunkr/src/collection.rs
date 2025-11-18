@@ -216,6 +216,33 @@ impl Collection {
         let page_manager = PageManager::from_file(file)?;
         DocumentIterator::new(page_manager)
     }
+
+    /// Find a document by its ObjectId
+    ///
+    /// Returns `Some(document)` if found, `None` if not found.
+    pub fn find_by_id(&mut self, id: &ObjectId) -> Result<Option<Value>> {
+        // Flush any pending writes
+        self.page_manager.flush()?;
+        
+        // Create a new PageManager for reading
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.file_path)
+            .map_err(Error::Io)?;
+        
+        let mut page_manager = PageManager::from_file(file)?;
+        
+        // Use find_document_by_id to locate the document
+        use crate::storage::find_document_by_id;
+        if let Some(page_id) = find_document_by_id(page_manager.file(), *id, 0, 10000)? {
+            // Read the document
+            let (_, value) = read_document(page_manager.file(), page_id)?;
+            Ok(Some(value))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 #[cfg(test)]
@@ -373,6 +400,36 @@ mod tests {
         let (_temp_file, mut collection) = create_test_collection();
         let mut iter = collection.iter().unwrap();
         assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_find_by_id() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert a document
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        let id = collection.insert_one(doc).unwrap();
+
+        // Find the document
+        let found = collection.find_by_id(&id).unwrap();
+        assert!(found.is_some());
+        if let Some(Value::Object(map)) = found {
+            assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+        } else {
+            panic!("Expected Object value");
+        }
+    }
+
+    #[test]
+    fn test_find_by_id_not_found() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        let non_existent_id = ObjectId::new();
+        let found = collection.find_by_id(&non_existent_id).unwrap();
+        assert!(found.is_none());
     }
 }
 
