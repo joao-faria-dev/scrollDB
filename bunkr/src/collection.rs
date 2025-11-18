@@ -627,6 +627,82 @@ mod tests {
         }
         assert_eq!(count, 1);
     }
+
+    #[test]
+    fn test_find_with_gt_operator() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert documents with different ages
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("age".to_string(), Value::Int(25));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("age".to_string(), Value::Int(30));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Find with $gt operator
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            let mut op = std::collections::HashMap::new();
+            op.insert("$gt".to_string(), Value::Int(25));
+            map.insert("age".to_string(), Value::Object(op));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let doc = result.unwrap();
+            if let Value::Object(map) = doc {
+                if let Some(Value::Int(age)) = map.get("age") {
+                    assert!(*age > 25);
+                }
+                count += 1;
+            }
+        }
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_find_with_in_operator() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert documents
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("role".to_string(), Value::String("admin".to_string()));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("role".to_string(), Value::String("user".to_string()));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Find with $in operator
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            let mut op = std::collections::HashMap::new();
+            op.insert("$in".to_string(), Value::Array(vec![
+                Value::String("admin".to_string()),
+                Value::String("moderator".to_string()),
+            ]));
+            map.insert("role".to_string(), Value::Object(op));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let _doc = result.unwrap();
+            count += 1;
+        }
+        assert_eq!(count, 1);
+    }
 }
 
 #[cfg(test)]
