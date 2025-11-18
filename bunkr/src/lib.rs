@@ -6,7 +6,7 @@ pub mod query;
 pub mod storage;
 pub mod types;
 
-pub use collection::Collection;
+pub use collection::{Collection, FilteredDocumentIterator};
 pub use db::Database;
 pub use error::{Error, Result};
 pub use types::{ObjectId, ObjectIdError, Value};
