@@ -352,10 +352,28 @@ impl Collection {
                             page_manager.deallocate_page(*pid)?;
                         }
                         
-                        // Write updated document using collection's page manager
+                        // Pre-allocate pages for updated document
+                        let doc_bytes = crate::storage::serialize_document(&doc)?;
+                        let doc_header_size = 16;
+                        let total_size = doc_header_size + doc_bytes.len();
+                        let max_page_data = crate::storage::page::PageHeader::max_data_size();
+                        let pages_needed = if total_size <= max_page_data {
+                            1
+                        } else {
+                            (total_size + max_page_data - 1) / max_page_data
+                        };
+                        
+                        let mut new_page_ids = Vec::with_capacity(pages_needed);
+                        for _ in 0..pages_needed {
+                            new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
+                        }
+                        
+                        // Write updated document
                         let file = self.page_manager.file();
+                        let mut page_id_counter = 0usize;
                         let mut allocate = || {
-                            let id = self.page_manager.allocate_page(PageType::Data)?;
+                            let id = new_page_ids[page_id_counter];
+                            page_id_counter += 1;
                             Ok(id)
                         };
                         
@@ -434,10 +452,28 @@ impl Collection {
                     page_manager.deallocate_page(*pid)?;
                 }
                 
-                // Write updated document using collection's page manager
+                // Pre-allocate pages for updated document
+                let doc_bytes = crate::storage::serialize_document(&doc)?;
+                let doc_header_size = 16;
+                let total_size = doc_header_size + doc_bytes.len();
+                let max_page_data = crate::storage::page::PageHeader::max_data_size();
+                let pages_needed = if total_size <= max_page_data {
+                    1
+                } else {
+                    (total_size + max_page_data - 1) / max_page_data
+                };
+                
+                let mut new_page_ids = Vec::with_capacity(pages_needed);
+                for _ in 0..pages_needed {
+                    new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
+                }
+                
+                // Write updated document
                 let file = self.page_manager.file();
+                let mut page_id_counter = 0usize;
                 let mut allocate = || {
-                    let id = self.page_manager.allocate_page(PageType::Data)?;
+                    let id = new_page_ids[page_id_counter];
+                    page_id_counter += 1;
                     Ok(id)
                 };
                 
