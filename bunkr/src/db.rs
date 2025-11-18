@@ -185,4 +185,63 @@ mod tests {
             panic!("Expected CorruptedDatabase error");
         }
     }
+
+    #[test]
+    fn test_close_flushes_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        let db = Database::open(&path).unwrap();
+        assert!(db.is_open());
+        db.close().unwrap();
+
+        // Verify file still exists and has valid header
+        let mut file = File::open(&path).unwrap();
+        let header = Header::read_from(&mut file).unwrap();
+        assert_eq!(header.magic, crate::storage::MAGIC_BYTES);
+    }
+
+    #[test]
+    fn test_drop_closes_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        {
+            let db = Database::open(&path).unwrap();
+            assert!(db.is_open());
+            // db is dropped here
+        }
+
+        // Verify file still exists and has valid header after drop
+        let mut file = File::open(&path).unwrap();
+        let header = Header::read_from(&mut file).unwrap();
+        assert_eq!(header.magic, crate::storage::MAGIC_BYTES);
+    }
+
+    #[test]
+    fn test_open_close_reopen_cycle() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        // First open
+        let db1 = Database::open(&path).unwrap();
+        assert!(db1.is_open());
+        db1.close().unwrap();
+
+        // Second open
+        let db2 = Database::open(&path).unwrap();
+        assert!(db2.is_open());
+        db2.close().unwrap();
+
+        // Third open
+        let db3 = Database::open(&path).unwrap();
+        assert!(db3.is_open());
+        db3.close().unwrap();
+
+        // Verify file is still valid
+        let mut file = File::open(&path).unwrap();
+        let header = Header::read_from(&mut file).unwrap();
+        assert_eq!(header.magic, crate::storage::MAGIC_BYTES);
+        assert_eq!(header.version, crate::storage::FILE_VERSION);
+    }
 }
