@@ -303,7 +303,7 @@ impl Collection {
         
         // Check if this is a $text query and create index if needed
         if let Some(text_value) = parsed_query.fields().get("$text") {
-            if let Ok(text_query) = TextSearchQuery::from_value(text_value) {
+            if let Ok(_text_query) = TextSearchQuery::from_value(text_value) {
                 // Create text index if it doesn't exist
                 if self.text_index.is_none() {
                     let mut index = crate::index::TextIndex::new();

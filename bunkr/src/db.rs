@@ -1,7 +1,7 @@
 use crate::collection::Collection;
 use crate::error::{Error, Result};
 use crate::storage::{Header, PageManager};
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
 /// Database handle for Bunkr
@@ -116,6 +116,7 @@ impl Drop for Database {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
     use tempfile::TempDir;
 
