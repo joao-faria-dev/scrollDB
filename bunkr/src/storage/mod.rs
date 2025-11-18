@@ -1,2 +1,4 @@
-// Placeholder - will be implemented in commit 1.3
+pub mod header;
+
+pub use header::{Header, FILE_VERSION, HEADER_SIZE, MAGIC_BYTES};
 
