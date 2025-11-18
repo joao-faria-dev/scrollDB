@@ -1,6 +1,8 @@
 use crate::types::Value;
 use crate::error::{Error, Result};
 
+pub mod path;
+
 /// Query structure for matching documents
 #[derive(Debug, Clone)]
 pub struct Query {
