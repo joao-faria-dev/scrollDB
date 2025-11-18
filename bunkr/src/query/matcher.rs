@@ -1,5 +1,5 @@
 use crate::types::Value;
-use crate::error::{Error, Result};
+use crate::error::Result;
 use super::Query;
 use super::path::{parse_path, get_value_at_path};
 

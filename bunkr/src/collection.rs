@@ -99,6 +99,12 @@ pub struct DocumentIterator {
     visited_pages: std::collections::HashSet<PageId>,
 }
 
+/// Iterator that filters documents by a query
+pub struct FilteredDocumentIterator {
+    inner: DocumentIterator,
+    query: crate::query::Query,
+}
+
 impl DocumentIterator {
     fn new(mut page_manager: PageManager) -> Result<Self> {
         // Get max page ID
@@ -200,6 +206,29 @@ impl Iterator for DocumentIterator {
     }
 }
 
+impl Iterator for FilteredDocumentIterator {
+    type Item = Result<Value>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        use crate::query::matcher;
+        
+        loop {
+            match self.inner.next() {
+                Some(Ok(doc)) => {
+                    // Check if document matches query
+                    match matcher::matches(&doc, &self.query) {
+                        Ok(true) => return Some(Ok(doc)),
+                        Ok(false) => continue, // Doesn't match, try next
+                        Err(e) => return Some(Err(e)),
+                    }
+                }
+                Some(Err(e)) => return Some(Err(e)),
+                None => return None,
+            }
+        }
+    }
+}
+
 impl Collection {
     /// Create an iterator over all documents in the collection
     pub fn iter(&mut self) -> Result<DocumentIterator> {
@@ -246,21 +275,20 @@ impl Collection {
 
     /// Find documents matching a query
     ///
-    /// Currently only supports empty query `{}` which returns all documents.
+    /// Supports exact match queries with dotted paths.
     /// Returns an iterator over matching documents.
-    pub fn find(&mut self, query: Value) -> Result<DocumentIterator> {
-        // For now, only support empty query (find all)
-        match query {
-            Value::Object(map) if map.is_empty() => {
-                // Empty query means find all
-                self.iter()
-            }
-            _ => {
-                Err(Error::CorruptedDatabase {
-                    reason: "Only empty query {} is supported".to_string(),
-                })
-            }
-        }
+    pub fn find(&mut self, query: Value) -> Result<FilteredDocumentIterator> {
+        use crate::query::Query;
+        
+        // Parse query
+        let parsed_query = Query::from_value(query)?;
+        
+        // Create filtered iterator
+        let iter = self.iter()?;
+        Ok(FilteredDocumentIterator {
+            inner: iter,
+            query: parsed_query,
+        })
     }
 }
 
@@ -483,17 +511,69 @@ mod tests {
     }
 
     #[test]
-    fn test_find_invalid_query() {
+    fn test_find_with_query() {
         let (_temp_file, mut collection) = create_test_collection();
 
-        // Try to use a non-empty query (not supported yet)
+        // Insert documents
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+            map.insert("age".to_string(), Value::Int(25));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+            map.insert("age".to_string(), Value::Int(30));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Find with query
         let mut query = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = query {
             map.insert("name".to_string(), Value::String("Alice".to_string()));
         }
         
-        let result = collection.find(query);
-        assert!(result.is_err());
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let doc = result.unwrap();
+            if let Value::Object(map) = doc {
+                assert_eq!(map.get("name"), Some(&Value::String("Alice".to_string())));
+                count += 1;
+            }
+        }
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_find_with_dotted_path() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert document with nested object
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            let mut profile = std::collections::HashMap::new();
+            profile.insert("age".to_string(), Value::Int(30));
+            map.insert("profile".to_string(), Value::Object(profile));
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        collection.insert_one(doc).unwrap();
+
+        // Find with dotted path query
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            map.insert("profile.age".to_string(), Value::Int(30));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let _doc = result.unwrap();
+            count += 1;
+        }
+        assert_eq!(count, 1);
     }
 }
 
