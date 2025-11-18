@@ -1139,6 +1139,71 @@ mod tests {
     }
 
     #[test]
+    fn test_update_one_by_name_field() {
+        // Test that matches the Python example: update by name field
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert a document with name "Bob" and age 25
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+            map.insert("age".to_string(), Value::Int(25));
+        }
+        let id = collection.insert_one(doc).unwrap();
+
+        // Update using filter by name (not _id)
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+        }
+        
+        let mut update = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = update {
+            let mut set_op = std::collections::HashMap::new();
+            set_op.insert("age".to_string(), Value::Int(26));
+            map.insert("$set".to_string(), Value::Object(set_op));
+        }
+        
+        let count = collection.update_one(filter, update).unwrap();
+        assert_eq!(count, 1, "update_one should update 1 document when filtering by name");
+        
+        // Verify the update
+        let found = collection.find_by_id(&id).unwrap();
+        assert!(found.is_some(), "Document should still exist after update");
+        if let Some(Value::Object(map)) = found {
+            assert_eq!(map.get("age"), Some(&Value::Int(26)), "Age should be updated to 26");
+            assert_eq!(map.get("name"), Some(&Value::String("Bob".to_string())), "Name should still be Bob");
+        }
+    }
+
+    #[test]
+    fn test_delete_one_by_name_field() {
+        // Test that matches the Python example: delete by name field
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert a document with name "Charlie"
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("Charlie".to_string()));
+            map.insert("age".to_string(), Value::Int(35));
+        }
+        let id = collection.insert_one(doc).unwrap();
+
+        // Delete using filter by name (not _id)
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            map.insert("name".to_string(), Value::String("Charlie".to_string()));
+        }
+        
+        let count = collection.delete_one(filter).unwrap();
+        assert_eq!(count, 1, "delete_one should delete 1 document when filtering by name");
+        
+        // Verify the deletion
+        let found = collection.find_by_id(&id).unwrap();
+        assert!(found.is_none(), "Document should be deleted");
+    }
+
+    #[test]
     fn test_delete_one() {
         let (_temp_file, mut collection) = create_test_collection();
 
