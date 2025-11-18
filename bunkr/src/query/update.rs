@@ -105,21 +105,36 @@ impl UpdateModifier {
                             map.remove(&path[0]);
                             Ok(())
                         } else {
-                            // Nested field removal
+                            // Nested field removal - need to navigate and modify
                             let parent_path = &path[..path.len() - 1];
                             let field_name = &path[path.len() - 1];
                             
-                            if let Some(parent_value) = get_value_at_path(doc, parent_path) {
-                                if let Value::Object(parent_map) = parent_value {
+                            // Get parent value mutably
+                            let mut current: &mut Value = doc;
+                            for segment in parent_path {
+                                match current {
+                                    Value::Object(parent_map) => {
+                                        current = parent_map.get_mut(segment).ok_or_else(|| Error::CorruptedDatabase {
+                                            reason: format!("Path {} does not exist", path_str),
+                                        })?;
+                                    }
+                                    _ => {
+                                        return Err(Error::CorruptedDatabase {
+                                            reason: format!("Cannot unset field in non-object at path {}", path_str),
+                                        });
+                                    }
+                                }
+                            }
+                            
+                            // Remove the field
+                            match current {
+                                Value::Object(parent_map) => {
                                     parent_map.remove(field_name);
                                     Ok(())
-                                } else {
-                                    Err(Error::CorruptedDatabase {
-                                        reason: format!("Cannot unset field in non-object at path {}", path_str),
-                                    })
                                 }
-                            } else {
-                                Ok(()) // Path doesn't exist, nothing to unset
+                                _ => Err(Error::CorruptedDatabase {
+                                    reason: format!("Cannot unset field in non-object at path {}", path_str),
+                                }),
                             }
                         }
                     }
