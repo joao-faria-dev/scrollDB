@@ -105,10 +105,12 @@ pub fn write_document(
     data_to_write.extend_from_slice(&header_bytes);
     data_to_write.extend_from_slice(&doc_bytes);
 
+    const NO_NEXT_PAGE: PageId = u32::MAX;
+
     let mut offset = 0;
     for (i, &page_id) in page_ids.iter().enumerate() {
         let is_last = i == page_ids.len() - 1;
-        let next_page = if is_last { 0 } else { page_ids[i + 1] };
+        let next_page = if is_last { NO_NEXT_PAGE } else { page_ids[i + 1] };
 
         // Calculate how much data fits in this page
         let page_data_size = if is_last {
@@ -120,7 +122,7 @@ pub fn write_document(
         // Create page
         let mut page = Page::new(page_id, PageType::Data);
         page.data = data_to_write[offset..offset + page_data_size].to_vec();
-        page.header.next_page = if is_last { 0 } else { next_page };
+        page.header.next_page = next_page;
 
         // Write page
         page.write_to(file)?;
@@ -141,8 +143,9 @@ pub fn read_document(
     let mut all_data = page.data.clone();
 
     // Follow page chain if needed
+    const NO_NEXT_PAGE: PageId = u32::MAX;
     let mut current_page_id = page.header.next_page;
-    while current_page_id != 0 {
+    while current_page_id != NO_NEXT_PAGE {
         let next_page = Page::read_from(file, current_page_id)?;
         all_data.extend_from_slice(&next_page.data);
         current_page_id = next_page.header.next_page;
@@ -187,8 +190,21 @@ pub fn find_document_by_id(
     let mut current_page_id = start_page;
     let mut pages_checked = 0;
 
-    while current_page_id != 0 && pages_checked < max_pages {
-        let page = Page::read_from(file, current_page_id)?;
+    loop {
+        if pages_checked >= max_pages {
+            break;
+        }
+
+        // Try to read the page
+        let page = match Page::read_from(file, current_page_id) {
+            Ok(p) => p,
+            Err(_) => {
+                // Page doesn't exist, try next sequential page
+                current_page_id += 1;
+                pages_checked += 1;
+                continue;
+            }
+        };
         
         if page.header.page_type == PageType::Data && !page.data.is_empty() {
             // Try to read document header
@@ -202,7 +218,8 @@ pub fn find_document_by_id(
         }
 
         // Move to next page in chain or next sequential page
-        if page.header.next_page != 0 {
+        const NO_NEXT_PAGE: PageId = u32::MAX;
+        if page.header.next_page != NO_NEXT_PAGE {
             current_page_id = page.header.next_page;
         } else {
             // No next page, try next sequential page

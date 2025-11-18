@@ -37,7 +37,7 @@ impl PageManager {
 
         Ok(Self {
             file,
-            first_free_page: if first_free_page == 0 { None } else { Some(first_free_page) },
+            first_free_page: if first_free_page == Self::NO_NEXT_PAGE { None } else { Some(first_free_page) },
             next_page_id,
         })
     }
@@ -63,8 +63,11 @@ impl PageManager {
                 return Ok(page_id);
             }
         }
-        Ok(0) // No free pages found
+        Ok(Self::NO_NEXT_PAGE) // No free pages found
     }
+
+    /// Sentinel value for "no next page" in free page chain
+    const NO_NEXT_PAGE: PageId = u32::MAX;
 
     /// Allocate a new page
     pub fn allocate_page(&mut self, page_type: PageType) -> Result<PageId> {
@@ -74,7 +77,7 @@ impl PageManager {
             let header = PageHeader::read_from(&mut self.file, page_id)?;
             
             // Update first_free_page to next free page in chain
-            self.first_free_page = if header.next_page == 0 {
+            self.first_free_page = if header.next_page == Self::NO_NEXT_PAGE {
                 None
             } else {
                 Some(header.next_page)
@@ -119,7 +122,7 @@ impl PageManager {
         let mut free_header = PageHeader::free();
         
         // Link to first free page
-        free_header.next_page = self.first_free_page.unwrap_or(0);
+        free_header.next_page = self.first_free_page.unwrap_or(Self::NO_NEXT_PAGE);
         self.first_free_page = Some(page_id);
         
         // Clear page data
@@ -254,14 +257,17 @@ mod tests {
         manager.deallocate_page(page3).unwrap();
         
         // Allocate again - should reuse pages in reverse order (LIFO)
+        // The chain is: page3 -> page2 -> page1, so we should get them in that order
         let reused1 = manager.allocate_page(PageType::Data).unwrap();
         let reused2 = manager.allocate_page(PageType::Data).unwrap();
         let reused3 = manager.allocate_page(PageType::Data).unwrap();
         
-        // Should reuse pages (order may vary based on implementation)
-        assert!(reused1 == page3 || reused1 == page2 || reused1 == page1);
-        assert!(reused2 == page3 || reused2 == page2 || reused2 == page1);
-        assert!(reused3 == page3 || reused3 == page2 || reused3 == page1);
+        // Verify all three pages were reused (they should be page3, page2, page1 in LIFO order)
+        let reused_pages = vec![reused1, reused2, reused3];
+        assert!(reused_pages.contains(&page1), "page1 should be reused");
+        assert!(reused_pages.contains(&page2), "page2 should be reused");
+        assert!(reused_pages.contains(&page3), "page3 should be reused");
+        assert_eq!(reused_pages.len(), 3, "Should have exactly 3 reused pages");
     }
 }
 
