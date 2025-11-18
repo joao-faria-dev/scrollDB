@@ -290,6 +290,165 @@ impl Collection {
             query: parsed_query,
         })
     }
+
+    /// Update a single document matching the query
+    ///
+    /// Returns the number of documents updated (0 or 1).
+    pub fn update_one(&mut self, filter: Value, update: Value) -> Result<u64> {
+        use crate::query::{Query, update::UpdateModifier, matcher};
+        use crate::storage::find_document_by_id;
+        
+        // Parse filter and update
+        let filter_query = Query::from_value(filter)?;
+        let modifiers = UpdateModifier::from_value(&update)?;
+        
+        // Flush pending writes
+        self.page_manager.flush()?;
+        
+        // Find first matching document
+        let mut iter = self.iter()?;
+        if let Some(Ok(mut doc)) = iter.next() {
+            // Check if it matches the filter
+            if matcher::matches(&doc, &filter_query)? {
+                // Extract _id before modifying
+                let doc_id = if let Value::Object(ref map) = doc {
+                    if let Some(Value::String(id_str)) = map.get("_id") {
+                        id_str.parse().ok()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                
+                if let Some(id) = doc_id {
+                    // Apply all modifiers
+                    for modifier in &modifiers {
+                        modifier.apply(&mut doc)?;
+                    }
+                    
+                    // Find the document's page
+                    let file = std::fs::OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(&self.file_path)
+                        .map_err(Error::Io)?;
+                    let mut page_manager = PageManager::from_file(file)?;
+                    
+                    if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
+                        // Read to get all page IDs in the chain
+                        let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
+                        let mut page_ids = vec![page_id];
+                        let mut current = page.header.next_page;
+                        const NO_NEXT_PAGE: PageId = u32::MAX;
+                        while current != NO_NEXT_PAGE {
+                            page_ids.push(current);
+                            let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
+                            current = next_page.header.next_page;
+                        }
+                        
+                        // Deallocate old pages
+                        for pid in &page_ids {
+                            page_manager.deallocate_page(*pid)?;
+                        }
+                        
+                        // Write updated document using collection's page manager
+                        let file = self.page_manager.file();
+                        let mut allocate = || {
+                            let id = self.page_manager.allocate_page(PageType::Data)?;
+                            Ok(id)
+                        };
+                        
+                        write_document(file, id, &doc, &mut allocate)?;
+                        self.page_manager.flush()?;
+                        
+                        return Ok(1);
+                    }
+                }
+            }
+        }
+        
+        Ok(0)
+    }
+
+    /// Update multiple documents matching the query
+    ///
+    /// Returns the number of documents updated.
+    pub fn update_many(&mut self, filter: Value, update: Value) -> Result<u64> {
+        use crate::query::{Query, update::UpdateModifier, matcher};
+        use crate::storage::find_document_by_id;
+        
+        // Parse filter and update
+        let filter_query = Query::from_value(filter)?;
+        let modifiers = UpdateModifier::from_value(&update)?;
+        
+        // Flush pending writes
+        self.page_manager.flush()?;
+        
+        let mut updated_count = 0u64;
+        let mut iter = self.iter()?;
+        
+        // Collect all matching documents with their IDs
+        let mut to_update: Vec<(ObjectId, Value)> = Vec::new();
+        while let Some(Ok(doc)) = iter.next() {
+            if matcher::matches(&doc, &filter_query)? {
+                if let Value::Object(ref map) = doc {
+                    if let Some(Value::String(id_str)) = map.get("_id") {
+                        if let Ok(id) = id_str.parse() {
+                            to_update.push((id, doc));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Update each document
+        for (id, mut doc) in to_update {
+            // Apply all modifiers
+            for modifier in &modifiers {
+                modifier.apply(&mut doc)?;
+            }
+            
+            // Find and replace the document
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.file_path)
+                .map_err(Error::Io)?;
+            let mut page_manager = PageManager::from_file(file)?;
+            
+            if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
+                // Get all page IDs in chain
+                let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
+                let mut page_ids = vec![page_id];
+                let mut current = page.header.next_page;
+                const NO_NEXT_PAGE: PageId = u32::MAX;
+                while current != NO_NEXT_PAGE {
+                    page_ids.push(current);
+                    let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
+                    current = next_page.header.next_page;
+                }
+                
+                // Deallocate old pages
+                for pid in &page_ids {
+                    page_manager.deallocate_page(*pid)?;
+                }
+                
+                // Write updated document using collection's page manager
+                let file = self.page_manager.file();
+                let mut allocate = || {
+                    let id = self.page_manager.allocate_page(PageType::Data)?;
+                    Ok(id)
+                };
+                
+                write_document(file, id, &doc, &mut allocate)?;
+                updated_count += 1;
+            }
+        }
+        
+        self.page_manager.flush()?;
+        Ok(updated_count)
+    }
 }
 
 #[cfg(test)]
