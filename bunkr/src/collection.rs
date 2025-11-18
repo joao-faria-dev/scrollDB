@@ -1027,6 +1027,129 @@ mod tests {
         }
         assert_eq!(count, 1);
     }
+
+    #[test]
+    fn test_update_one() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert a document
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+            map.insert("age".to_string(), Value::Int(25));
+        }
+        let id = collection.insert_one(doc).unwrap();
+
+        // Update with $set
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            map.insert("_id".to_string(), Value::String(id.to_string()));
+        }
+        
+        let mut update = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = update {
+            let mut set_op = std::collections::HashMap::new();
+            set_op.insert("age".to_string(), Value::Int(26));
+            map.insert("$set".to_string(), Value::Object(set_op));
+        }
+        
+        let count = collection.update_one(filter, update).unwrap();
+        assert_eq!(count, 1);
+        
+        // Verify update
+        let found = collection.find_by_id(&id).unwrap();
+        if let Some(Value::Object(map)) = found {
+            assert_eq!(map.get("age"), Some(&Value::Int(26)));
+        }
+    }
+
+    #[test]
+    fn test_update_many() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert documents
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("status".to_string(), Value::String("active".to_string()));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("status".to_string(), Value::String("active".to_string()));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Update all active documents
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            map.insert("status".to_string(), Value::String("active".to_string()));
+        }
+        
+        let mut update = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = update {
+            let mut set_op = std::collections::HashMap::new();
+            set_op.insert("status".to_string(), Value::String("inactive".to_string()));
+            map.insert("$set".to_string(), Value::Object(set_op));
+        }
+        
+        let count = collection.update_many(filter, update).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_delete_one() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert a document
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        let id = collection.insert_one(doc).unwrap();
+
+        // Delete it
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            map.insert("_id".to_string(), Value::String(id.to_string()));
+        }
+        
+        let count = collection.delete_one(filter).unwrap();
+        assert_eq!(count, 1);
+        
+        // Verify deletion
+        let found = collection.find_by_id(&id).unwrap();
+        assert!(found.is_none());
+    }
+
+    #[test]
+    fn test_delete_many() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert documents
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("age".to_string(), Value::Int(15));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("age".to_string(), Value::Int(20));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Delete documents with age < 18
+        let mut filter = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = filter {
+            let mut op = std::collections::HashMap::new();
+            op.insert("$lt".to_string(), Value::Int(18));
+            map.insert("age".to_string(), Value::Object(op));
+        }
+        
+        let count = collection.delete_many(filter).unwrap();
+        assert_eq!(count, 1);
+    }
 }
 
 #[cfg(test)]
