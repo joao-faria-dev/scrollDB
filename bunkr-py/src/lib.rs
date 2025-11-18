@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 /// Python bindings for Bunkr database
 #[pymodule]
+#[pyo3(name = "bunkr")]
 fn bunkr_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Database>()?;
     m.add_class::<Collection>()?;
