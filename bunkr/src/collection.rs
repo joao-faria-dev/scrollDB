@@ -243,6 +243,25 @@ impl Collection {
             Ok(None)
         }
     }
+
+    /// Find documents matching a query
+    ///
+    /// Currently only supports empty query `{}` which returns all documents.
+    /// Returns an iterator over matching documents.
+    pub fn find(&mut self, query: Value) -> Result<DocumentIterator> {
+        // For now, only support empty query (find all)
+        match query {
+            Value::Object(map) if map.is_empty() => {
+                // Empty query means find all
+                self.iter()
+            }
+            _ => {
+                Err(Error::CorruptedDatabase {
+                    reason: "Only empty query {} is supported".to_string(),
+                })
+            }
+        }
+    }
 }
 
 #[cfg(test)]
