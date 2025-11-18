@@ -1,16 +1,28 @@
-# Bunkr
+`Bunkr`
+=========
 
-**Embedded Document Database** — MongoDB feel, zero dependencies, single binary.
+**Embedded Document Database** — Zero dependencies, single binary.
 
-Bunkr is an embedded document database for Rust applications, designed to be the LiteDB/MongoDB Realm that Rust/Tauri/Electron/Bevy/Flutter developers have always dreamed of.
+[![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](LICENSE-APACHE)
+[![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+[![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
+
+Bunkr is an embedded document database for Rust and Python applications. Perfect for desktop applications, embedded systems, and serverless environments where you need a lightweight, file-based database.
 
 ## Features
 
-- ✅ **Single-file database** — No server, no configuration
-- ✅ **MongoDB-style API** — Familiar `insert`, `find`, `update`, `delete` operations
-- ✅ **Automatic indexes** — Created on first query (no upfront cost)
+- **Single-file database** — No server, no configuration, just a file
+- **Zero runtime dependencies** — Pure Rust implementation
+- **Python bindings** — Full-featured Python API via PyO3
+- **Document queries** — Find, update, and delete operations
+- **Automatic indexing** — Indexes created on first query
+- **Page-based storage** — Efficient 4KB page management
+- **Type-safe** — Leverages Rust's type system
+- **Cross-platform** — Works on Windows, macOS, and Linux
 
-## Quick Start
+## Installation
+
+### Rust
 
 Add Bunkr to your `Cargo.toml`:
 
@@ -19,59 +31,123 @@ Add Bunkr to your `Cargo.toml`:
 bunkr = "0.1.0"
 ```
 
-Basic usage:
+### Python
+
+Install from PyPI (coming soon):
+
+```bash
+pip install bunkr
+```
+
+Or build from source:
+
+```bash
+cd bunkr-py
+pip install -e .
+```
+
+## Quick Start
+
+### Rust
 
 ```rust
 use bunkr::{Database, Value};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Open or create a database
     let mut db = Database::open("myapp.bunkr")?;
-    
-    // Get a collection
     let mut users = db.collection("users")?;
     
-    // Insert a document (auto-generates _id if not provided)
     let mut doc = Value::Object(HashMap::new());
     if let Value::Object(ref mut map) = doc {
-        map.insert("name".to_string(), Value::String("João".to_string()));
+        map.insert("name".to_string(), Value::String("John".to_string()));
         map.insert("age".to_string(), Value::Int(30));
-        map.insert("active".to_string(), Value::Bool(true));
     }
     
     let id = users.insert_one(doc)?;
-    println!("Inserted document with id: {}", id);
     
-    // Close the database
+    for doc in users.find(Value::Object(HashMap::new()))? {
+        println!("Found: {:?}", doc);
+    }
+    
     db.close()?;
     Ok(())
 }
 ```
 
-## Current Status (v0.2.0)
+### Python
 
-**Implemented:**
-- ✅ File format with magic header
-- ✅ Database open/close API
-- ✅ Header validation
-- ✅ Error handling for corrupted files
-- ✅ Document insert with automatic `_id` generation
-- ✅ Page-based storage system (4KB pages)
-- ✅ Document serialization
+```python
+import bunkr
 
-**Coming soon:**
-- Document find operations
-- Query parser
-- Automatic indexes
-- Update and delete operations
-- Transactions and WAL
+db = bunkr.Database.open("myapp.bunkr")
+collection = db.collection("users")
+
+user_id = collection.insert_one({
+    "name": "John",
+    "age": 30,
+    "email": "John@example.com"
+})
+
+for doc in collection.find({"age": {"$gt": 25}}):
+    print(f"Found: {doc['name']}")
+
+collection.update_one(
+    {"name": "John"},
+    {"$set": {"age": 31}}
+)
+
+collection.delete_one({"name": "John"})
+db.close()
+```
+
+See the [examples](bunkr-py/examples/) directory for more complete examples.
+
+## API Reference
+
+### Python API
+
+- `Database.open(path)` - Open or create a database
+- `Database.collection(name)` - Get a collection
+- `Database.close()` - Close the database
+- `Collection.insert_one(doc)` - Insert a document
+- `Collection.find(query)` - Find documents matching a query
+- `Collection.find_by_id(id)` - Find a document by ID
+- `Collection.update_one(query, update)` - Update documents
+- `Collection.delete_one(query)` - Delete documents
+
+### Query Operators
+
+- `$eq` - Equal to
+- `$ne` - Not equal to
+- `$gt` - Greater than
+- `$gte` - Greater than or equal to
+- `$lt` - Less than
+- `$lte` - Less than or equal to
+- `$in` - In array
+- `$nin` - Not in array
+- `$text` - Text search (creates index automatically)
+
+
+## Status
+
+**Implemented (v0.1.0):**
+- File format with magic header
+- Database open/close API
+- Document insert, find, update, delete
+- Query operators
+- Text search with automatic indexing
+- Python bindings
+
+**Coming Soon:**
+- Compound indexes
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
 Licensed under either of:
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
 - MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
-
-at your option.
