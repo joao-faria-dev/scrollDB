@@ -89,7 +89,7 @@ impl Database {
             .map_err(Error::Io)?;
         
         let page_manager = PageManager::from_file(file)?;
-        let collection = Collection::new(name.to_string(), page_manager);
+        let collection = Collection::new(name.to_string(), page_manager, self.path.clone());
         
         Ok(collection)
     }
