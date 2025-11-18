@@ -2,6 +2,7 @@ use crate::types::Value;
 use crate::error::{Error, Result};
 
 pub mod path;
+pub mod matcher;
 
 /// Query structure for matching documents
 #[derive(Debug, Clone)]
