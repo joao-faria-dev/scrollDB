@@ -5,3 +5,4 @@ pub mod types;
 
 pub use db::Database;
 pub use error::{Error, Result};
+pub use types::{ObjectId, ObjectIdError};

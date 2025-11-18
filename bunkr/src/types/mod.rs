@@ -1,2 +1,3 @@
-// Placeholder for future types (ObjectId, etc.)
-// Will be implemented in commit 2
+pub mod object_id;
+
+pub use object_id::{ObjectId, ObjectIdError};
