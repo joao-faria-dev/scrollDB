@@ -9,12 +9,18 @@ pub struct Collection {
     name: String,
     page_manager: PageManager,
     file_path: std::path::PathBuf,
+    text_index: Option<crate::index::TextIndex>,
 }
 
 impl Collection {
     /// Create a new collection with the given name and page manager
     pub(crate) fn new(name: String, page_manager: PageManager, file_path: std::path::PathBuf) -> Self {
-        Self { name, page_manager, file_path }
+        Self { 
+            name, 
+            page_manager, 
+            file_path,
+            text_index: None,
+        }
     }
 
     /// Get the collection name
@@ -85,6 +91,18 @@ impl Collection {
 
         write_document(file, object_id, &doc, &mut allocate)?;
         self.page_manager.flush()?;
+
+        // Update text index if it exists
+        if let Some(ref mut index) = self.text_index {
+            let doc_id = object_id.to_string();
+            // Index all string fields by default
+            let fields: Vec<String> = if let Value::Object(map) = &doc {
+                map.keys().cloned().collect()
+            } else {
+                vec![]
+            };
+            index.index_document(&doc_id, &doc, &fields);
+        }
 
         Ok(object_id)
     }
@@ -275,13 +293,36 @@ impl Collection {
 
     /// Find documents matching a query
     ///
-    /// Supports exact match queries with dotted paths.
+    /// Supports exact match queries with dotted paths and text search.
     /// Returns an iterator over matching documents.
     pub fn find(&mut self, query: Value) -> Result<FilteredDocumentIterator> {
-        use crate::query::Query;
+        use crate::query::{Query, text::TextSearchQuery};
         
         // Parse query
-        let parsed_query = Query::from_value(query)?;
+        let parsed_query = Query::from_value(query.clone())?;
+        
+        // Check if this is a $text query and create index if needed
+        if let Some(text_value) = parsed_query.fields().get("$text") {
+            if let Ok(text_query) = TextSearchQuery::from_value(text_value) {
+                // Create text index if it doesn't exist
+                if self.text_index.is_none() {
+                    let mut index = crate::index::TextIndex::new();
+                    
+                    // Index all existing documents
+                    let mut iter = self.iter()?;
+                    while let Some(Ok(doc)) = iter.next() {
+                        if let Value::Object(ref map) = doc {
+                            if let Some(Value::String(id_str)) = map.get("_id") {
+                                let fields: Vec<String> = map.keys().cloned().collect();
+                                index.index_document(id_str, &doc, &fields);
+                            }
+                        }
+                    }
+                    
+                    self.text_index = Some(index);
+                }
+            }
+        }
         
         // Create filtered iterator
         let iter = self.iter()?;
@@ -1148,6 +1189,46 @@ mod tests {
         }
         
         let count = collection.delete_many(filter).unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_text_search() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert documents with text
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("title".to_string(), Value::String("Rust Database".to_string()));
+            map.insert("content".to_string(), Value::String("Embedded storage system".to_string()));
+        }
+        collection.insert_one(doc1).unwrap();
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("title".to_string(), Value::String("Python Tutorial".to_string()));
+        }
+        collection.insert_one(doc2).unwrap();
+
+        // Search for "rust"
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            let mut text_op = std::collections::HashMap::new();
+            text_op.insert("$search".to_string(), Value::String("rust".to_string()));
+            map.insert("$text".to_string(), Value::Object(text_op));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let doc = result.unwrap();
+            if let Value::Object(map) = doc {
+                if let Some(Value::String(title)) = map.get("title") {
+                    assert!(title.to_lowercase().contains("rust"));
+                }
+                count += 1;
+            }
+        }
         assert_eq!(count, 1);
     }
 }

@@ -11,6 +11,41 @@ pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
         return Ok(true);
     }
 
+    // Check for $text query
+    if let Some(text_value) = query.fields().get("$text") {
+        use crate::query::text::TextSearchQuery;
+        if let Ok(text_query) = TextSearchQuery::from_value(text_value) {
+            // Simple text matching: check if document contains search terms
+            let terms = text_query.terms();
+            if terms.is_empty() {
+                return Ok(true);
+            }
+            
+            // Extract text from document
+            let mut doc_text = String::new();
+            extract_text_from_value(doc, &text_query.fields, &mut doc_text);
+            
+            // Check if all terms are in the document text
+            let doc_text_lower = if text_query.case_sensitive {
+                doc_text.clone()
+            } else {
+                doc_text.to_lowercase()
+            };
+            
+            for term in &terms {
+                let search_term = if text_query.case_sensitive {
+                    term.clone()
+                } else {
+                    term.to_lowercase()
+                };
+                if !doc_text_lower.contains(&search_term) {
+                    return Ok(false);
+                }
+            }
+            return Ok(true);
+        }
+    }
+
     // Check each field in the query
     for (field_path, expected_value) in query.fields() {
         let path_segments = parse_path(field_path);
@@ -42,6 +77,47 @@ pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
     }
 
     Ok(true)
+}
+
+/// Extract text from a value for text search
+fn extract_text_from_value(value: &Value, fields: &[String], output: &mut String) {
+    match value {
+        Value::Object(map) => {
+            for (key, val) in map {
+                if fields.is_empty() || fields.contains(key) {
+                    match val {
+                        Value::String(s) => {
+                            if !output.is_empty() {
+                                output.push(' ');
+                            }
+                            output.push_str(s);
+                        }
+                        Value::Array(arr) => {
+                            for item in arr {
+                                extract_text_from_value(item, &[], output);
+                            }
+                        }
+                        Value::Object(_) => {
+                            extract_text_from_value(val, &[], output);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Value::String(s) => {
+            if !output.is_empty() {
+                output.push(' ');
+            }
+            output.push_str(s);
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                extract_text_from_value(item, &[], output);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Check if two values match (exact match)

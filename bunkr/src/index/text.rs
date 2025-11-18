@@ -1,5 +1,4 @@
 use crate::types::Value;
-use crate::error::{Error, Result};
 use std::collections::{HashMap, HashSet};
 
 /// Inverted index for text search
