@@ -4,6 +4,7 @@ use crate::error::{Error, Result};
 pub mod path;
 pub mod matcher;
 pub mod operators;
+pub mod update;
 
 /// Query structure for matching documents
 #[derive(Debug, Clone)]
