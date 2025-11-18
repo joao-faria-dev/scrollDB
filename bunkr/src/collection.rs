@@ -575,6 +575,58 @@ mod tests {
         }
         assert_eq!(count, 1);
     }
+
+    #[test]
+    fn test_find_type_mismatch() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert document with string age
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("age".to_string(), Value::String("30".to_string()));
+        }
+        collection.insert_one(doc).unwrap();
+
+        // Query with int age (should not match)
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            map.insert("age".to_string(), Value::Int(30));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        assert!(iter.next().is_none());
+    }
+
+    #[test]
+    fn test_find_nested_object() {
+        let (_temp_file, mut collection) = create_test_collection();
+
+        // Insert document with nested object
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            let mut address = std::collections::HashMap::new();
+            address.insert("city".to_string(), Value::String("NYC".to_string()));
+            address.insert("zip".to_string(), Value::String("10001".to_string()));
+            map.insert("address".to_string(), Value::Object(address));
+        }
+        collection.insert_one(doc).unwrap();
+
+        // Query nested object
+        let mut query = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = query {
+            let mut address_query = std::collections::HashMap::new();
+            address_query.insert("city".to_string(), Value::String("NYC".to_string()));
+            map.insert("address".to_string(), Value::Object(address_query));
+        }
+        
+        let mut iter = collection.find(query).unwrap();
+        let mut count = 0;
+        while let Some(result) = iter.next() {
+            let _doc = result.unwrap();
+            count += 1;
+        }
+        assert_eq!(count, 1);
+    }
 }
 
 #[cfg(test)]
