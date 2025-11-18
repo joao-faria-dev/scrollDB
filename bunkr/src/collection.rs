@@ -118,5 +118,156 @@ mod tests {
         let collection = Collection::new("users".to_string(), page_manager);
         assert_eq!(collection.name(), "users");
     }
+
+    #[test]
+    fn test_insert_one_auto_id() {
+        let mut page_manager = create_test_page_manager();
+        let mut collection = Collection::new("users".to_string(), page_manager);
+
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("João".to_string()));
+            map.insert("age".to_string(), Value::Int(30));
+        }
+
+        let id = collection.insert_one(doc).unwrap();
+        
+        // Verify _id was added
+        assert!(!id.to_string().is_empty());
+        
+        // Verify document was written (we can't easily read it back yet, but we can check it doesn't error)
+    }
+
+    #[test]
+    fn test_insert_one_with_existing_id() {
+        let mut page_manager = create_test_page_manager();
+        let mut collection = Collection::new("users".to_string(), page_manager);
+
+        let existing_id = ObjectId::new();
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("_id".to_string(), Value::String(existing_id.to_string()));
+            map.insert("name".to_string(), Value::String("João".to_string()));
+        }
+
+        let id = collection.insert_one(doc).unwrap();
+        
+        // Verify the provided _id was used
+        assert_eq!(id, existing_id);
+    }
+
+    #[test]
+    fn test_insert_one_multiple_documents() {
+        let mut page_manager = create_test_page_manager();
+        let mut collection = Collection::new("users".to_string(), page_manager);
+
+        let mut doc1 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+            map.insert("age".to_string(), Value::Int(25));
+        }
+
+        let mut doc2 = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+            map.insert("age".to_string(), Value::Int(30));
+        }
+
+        let id1 = collection.insert_one(doc1).unwrap();
+        let id2 = collection.insert_one(doc2).unwrap();
+        
+        // Verify both documents got unique IDs
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_insert_one_invalid_document() {
+        let mut page_manager = create_test_page_manager();
+        let mut collection = Collection::new("users".to_string(), page_manager);
+
+        // Try to insert a non-Object value
+        let doc = Value::String("not an object".to_string());
+        
+        let result = collection.insert_one(doc);
+        assert!(result.is_err());
+        if let Err(Error::CorruptedDatabase { reason }) = result {
+            assert!(reason.contains("Object"));
+        } else {
+            panic!("Expected CorruptedDatabase error");
+        }
+    }
+
+    #[test]
+    fn test_insert_one_invalid_id_format() {
+        let mut page_manager = create_test_page_manager();
+        let mut collection = Collection::new("users".to_string(), page_manager);
+
+        let mut doc = Value::Object(std::collections::HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("_id".to_string(), Value::String("invalid-id".to_string()));
+            map.insert("name".to_string(), Value::String("Test".to_string()));
+        }
+
+        let result = collection.insert_one(doc);
+        assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use crate::Database;
+    use crate::types::Value;
+    use std::collections::HashMap;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_database_insert_one() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        let mut db = Database::open(&path).unwrap();
+        let mut collection = db.collection("users").unwrap();
+
+        let mut doc = Value::Object(HashMap::new());
+        if let Value::Object(ref mut map) = doc {
+            map.insert("name".to_string(), Value::String("João".to_string()));
+            map.insert("age".to_string(), Value::Int(30));
+            map.insert("active".to_string(), Value::Bool(true));
+        }
+
+        let id = collection.insert_one(doc).unwrap();
+        assert!(!id.to_string().is_empty());
+
+        db.close().unwrap();
+    }
+
+    #[test]
+    fn test_database_insert_multiple() {
+        let temp_dir = TempDir::new().unwrap();
+        let path = temp_dir.path().join("test.bunkr");
+
+        let mut db = Database::open(&path).unwrap();
+        let mut collection = db.collection("users").unwrap();
+
+        // Insert first document
+        let mut doc1 = Value::Object(HashMap::new());
+        if let Value::Object(ref mut map) = doc1 {
+            map.insert("name".to_string(), Value::String("Alice".to_string()));
+        }
+        let id1 = collection.insert_one(doc1).unwrap();
+
+        // Insert second document
+        let mut doc2 = Value::Object(HashMap::new());
+        if let Value::Object(ref mut map) = doc2 {
+            map.insert("name".to_string(), Value::String("Bob".to_string()));
+        }
+        let id2 = collection.insert_one(doc2).unwrap();
+
+        // Verify unique IDs
+        assert_ne!(id1, id2);
+
+        db.close().unwrap();
+    }
 }
 
