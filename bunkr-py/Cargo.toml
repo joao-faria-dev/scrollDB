@@ -1,0 +1,15 @@
+[package]
+name = "bunkr-py"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+name = "bunkr_py"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bunkr = { path = "../bunkr" }
+pyo3 = { version = "0.21", features = ["extension-module", "abi3-py38"] }
+serde_json = "1.0"
+
