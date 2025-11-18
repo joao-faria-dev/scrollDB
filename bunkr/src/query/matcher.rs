@@ -2,6 +2,7 @@ use crate::types::Value;
 use crate::error::Result;
 use super::Query;
 use super::path::{parse_path, get_value_at_path};
+use super::operators::Operator;
 
 /// Check if a document matches a query
 pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
@@ -23,9 +24,20 @@ pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
             }
         };
 
-        // Compare values (exact match for now)
-        if !values_match(&actual_value, expected_value)? {
-            return Ok(false);
+        // Check if expected_value is an operator
+        match Operator::from_value(expected_value) {
+            Ok(op) => {
+                // It's an operator, use operator matching
+                if !op.matches(&actual_value)? {
+                    return Ok(false);
+                }
+            }
+            Err(_) => {
+                // Not an operator, do exact match
+                if !values_match(&actual_value, expected_value)? {
+                    return Ok(false);
+                }
+            }
         }
     }
 
