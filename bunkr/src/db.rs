@@ -1,13 +1,13 @@
+use crate::collection::Collection;
 use crate::error::{Error, Result};
-use crate::storage::Header;
+use crate::storage::{Header, PageManager};
 use std::fs::{File, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Database handle for Bunkr
 pub struct Database {
     path: PathBuf,
-    file: Option<File>,
+    page_manager: Option<PageManager>,
 }
 
 impl Database {
@@ -52,23 +52,54 @@ impl Database {
             header.write_to(&mut file)?;
         }
 
+        // Create page manager
+        let page_manager = if file_exists {
+            PageManager::from_file(file)?
+        } else {
+            PageManager::new(file)
+        };
+
         Ok(Self {
             path,
-            file: Some(file),
+            page_manager: Some(page_manager),
         })
     }
 
     /// Check if the database is currently open
     pub fn is_open(&self) -> bool {
-        self.file.is_some()
+        self.page_manager.is_some()
+    }
+
+    /// Get a collection by name
+    ///
+    /// Collections are created on-demand when first accessed.
+    /// Note: This creates a new PageManager for the collection.
+    /// In a production system, we'd share the PageManager across collections.
+    pub fn collection(&mut self, name: &str) -> Result<Collection> {
+        if self.page_manager.is_none() {
+            return Err(Error::DatabaseNotOpen);
+        }
+        
+        // Create a new page manager from the file for this collection
+        // This is not ideal but works for the initial implementation
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&self.path)
+            .map_err(Error::Io)?;
+        
+        let page_manager = PageManager::from_file(file)?;
+        let collection = Collection::new(name.to_string(), page_manager);
+        
+        Ok(collection)
     }
 
     /// Close the database
     ///
     /// This flushes any pending writes and closes the file handle.
     pub fn close(mut self) -> Result<()> {
-        if let Some(mut file) = self.file.take() {
-            file.flush().map_err(Error::Io)?;
+        if let Some(mut page_manager) = self.page_manager.take() {
+            page_manager.flush()?;
         }
         Ok(())
     }
@@ -76,8 +107,8 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
-        if let Some(mut file) = self.file.take() {
-            let _ = file.flush();
+        if let Some(mut page_manager) = self.page_manager.take() {
+            let _ = page_manager.flush();
         }
     }
 }
