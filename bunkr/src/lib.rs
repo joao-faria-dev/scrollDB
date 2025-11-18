@@ -1,6 +1,7 @@
 pub mod collection;
 pub mod db;
 pub mod error;
+pub mod query;
 pub mod storage;
 pub mod types;
 
