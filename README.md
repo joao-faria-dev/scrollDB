@@ -1,4 +1,4 @@
-`Bunkr`
+`ScrollDB`
 =========
 
 **Embedded Document Database** — Zero dependencies, single binary.
@@ -7,28 +7,23 @@
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
 [![Python](https://img.shields.io/badge/python-3.8%2B-blue.svg)](https://www.python.org/)
 
-Bunkr is an embedded document database for Rust and Python applications. Perfect for desktop applications, embedded systems, and serverless environments where you need a lightweight, file-based database.
+## What is ScrollDB?
 
-## Features
+ScrollDB is a lightweight document database that designed
+for applications that need simple, reliable data storage. Instead of running a separate database server, everything is stored in a single file on disk. You can use it in desktop applications, embedded systems, serverless functions, or anywhere else you need to store structured data without the complexity of managing a full database setup.
 
-- **Single-file database** — No server, no configuration, just a file
-- **Zero runtime dependencies** — Pure Rust implementation
-- **Python bindings** — Full-featured Python API via PyO3
-- **Document queries** — Find, update, and delete operations
-- **Automatic indexing** — Indexes created on first query
-- **Page-based storage** — Efficient 4KB page management
-- **Type-safe** — Leverages Rust's type system
-- **Cross-platform** — Works on Windows, macOS, and Linux
+It's built with with Rust, but we added Python bindings so you can use it in either language. The API is simple: you store documents, query them, update them, delete them, etc. Just open a file and start using it.
+
 
 ## Installation
 
 ### Rust
 
-Add Bunkr to your `Cargo.toml`:
+Add ScrollDB to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-bunkr = "0.1.0"
+scrolldb = "0.1.0"
 ```
 
 ### Python
@@ -36,13 +31,13 @@ bunkr = "0.1.0"
 Install from PyPI (coming soon):
 
 ```bash
-pip install bunkr
+pip install scrolldb
 ```
 
 Or build from source:
 
 ```bash
-cd bunkr-py
+cd scrolldb-py
 pip install -e .
 ```
 
@@ -51,11 +46,11 @@ pip install -e .
 ### Rust
 
 ```rust
-use bunkr::{Database, Value};
+use scrolldb::{Database, Value};
 use std::collections::HashMap;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut db = Database::open("myapp.bunkr")?;
+    let mut db = Database::open("myapp.scrolldb")?;
     let mut users = db.collection("users")?;
     
     let mut doc = Value::Object(HashMap::new());
@@ -78,15 +73,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 ### Python
 
 ```python
-import bunkr
+import scrolldb
 
-db = bunkr.Database.open("myapp.bunkr")
+db = scrolldb.Database.open("myapp.scrolldb")
 collection = db.collection("users")
 
 user_id = collection.insert_one({
     "name": "John",
     "age": 30,
-    "email": "John@example.com"
+    "email": "john@example.com"
 })
 
 for doc in collection.find({"age": {"$gt": 25}}):
@@ -101,7 +96,7 @@ collection.delete_one({"name": "John"})
 db.close()
 ```
 
-See the [examples](bunkr-py/examples/) directory for more complete examples.
+See the [examples](scrolldb-py/examples/) directory for more complete examples.
 
 ## API Reference
 
@@ -128,23 +123,16 @@ See the [examples](bunkr-py/examples/) directory for more complete examples.
 - `$nin` - Not in array
 - `$text` - Text search (creates index automatically)
 
-
-## Status
-
-**Implemented (v0.1.0):**
-- File format with magic header
-- Database open/close API
-- Document insert, find, update, delete
-- Query operators
-- Text search with automatic indexing
-- Python bindings
-
-**Coming Soon:**
-- Compound indexes
-
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+We welcome contributions! ScrollDB is open-source, so you want to fix a bug, add a feature, improve documentation, or just ask questions, we'd love to hear from you.
+
+**Getting started:**
+- Read our [Contributing Guide](CONTRIBUTING.md) for development setup and guidelines
+- Check out open issues for things to work on
+- Submit pull requests for any improvements
+
+Let's make this tool better for everyone!
 
 ## License
 
