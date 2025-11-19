@@ -1,9 +1,9 @@
 use thiserror::Error;
 
-/// Result type alias for Bunkr operations
+/// Result type alias for ScrollDB operations
 pub type Result<T> = std::result::Result<T, Error>;
 
-/// Error types for Bunkr operations
+/// Error types for ScrollDB operations
 #[derive(Error, Debug)]
 pub enum Error {
     /// I/O errors

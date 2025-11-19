@@ -1,5 +1,5 @@
 [workspace]
-members = ["bunkr", "bunkr-py"]
+members = ["scrolldb", "scrolldb-py"]
 resolver = "2"
 
 [workspace.package]

@@ -1,12 +1,12 @@
 [project]
-name = "bunkr"
+name = "scrolldb"
 version = "0.1.0"
 description = "A fast, embedded document database for Rust and Python"
 readme = "README.md"
 requires-python = ">=3.8"
 license = { text = "MIT OR Apache-2.0" }
 authors = [
-    { name = "Bunkr Contributors" }
+    { name = "ScrollDB Contributors" }
 ]
 keywords = ["database", "document", "embedded", "nosql"]
 classifiers = [
@@ -25,5 +25,5 @@ build-backend = "maturin"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
-module-name = "bunkr"
+module-name = "scrolldb"
 

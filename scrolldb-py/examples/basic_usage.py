@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Basic usage example for Bunkr Python bindings"""
+"""Basic usage example for ScrollDB Python bindings"""
 
-import bunkr
+import scrolldb
 import os
 
 # Create a database
-db_path = "example.bunkr"
+db_path = "example.scrolldb"
 if os.path.exists(db_path):
     os.unlink(db_path)
 
-db = bunkr.Database.open(db_path)
+db = scrolldb.Database.open(db_path)
 collection = db.collection("users")
 
 # Insert some documents

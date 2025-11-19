@@ -1,6 +1,6 @@
-# Contributing to Bunkr
+# Contributing to ScrollDB
 
-Thank you for your interest in contributing to Bunkr! This document provides guidelines and instructions for contributing.
+Thank you for your interest in contributing to ScrollDB! This document provides guidelines and instructions for contributing.
 
 ## Getting Started
 
@@ -22,7 +22,7 @@ Thank you for your interest in contributing to Bunkr! This document provides gui
    cargo build
 
    # Build Python bindings (optional)
-   cd bunkr-py
+   cd scrolldb-py
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install maturin
@@ -35,7 +35,7 @@ Thank you for your interest in contributing to Bunkr! This document provides gui
    cargo test
 
    # Python tests
-   cd bunkr-py
+   cd scrolldb-py
    python -m pytest tests/
    ```
 
@@ -106,7 +106,7 @@ Branch naming conventions:
 
 - **Unit tests**: Place in the same file with `#[cfg(test)]`
 - **Integration tests**: Place in `tests/` directory
-- **Python tests**: Place in `bunkr-py/tests/`
+- **Python tests**: Place in `scrolldb-py/tests/`
 
 Example Rust test:
 
@@ -219,7 +219,7 @@ When reporting bugs, please include:
    - OS and version
    - Rust version (`rustc --version`)
    - Python version (if applicable)
-   - Bunkr version
+   - ScrollDB version
 6. **Error messages**: Full error output
 7. **Minimal example**: Small code snippet that reproduces the issue
 
@@ -247,4 +247,4 @@ Feature suggestions are welcome! Please:
 - Check existing issues and discussions
 - Reach out to maintainers
 
-Thank you for contributing to Bunkr!
+Thank you for contributing to ScrollDB!

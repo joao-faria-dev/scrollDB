@@ -1516,7 +1516,7 @@ mod integration_tests {
     #[test]
     fn test_database_insert_one() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         let mut db = Database::open(&path).unwrap();
         let mut collection = db.collection("users").unwrap();
@@ -1537,7 +1537,7 @@ mod integration_tests {
     #[test]
     fn test_database_insert_multiple() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         let mut db = Database::open(&path).unwrap();
         let mut collection = db.collection("users").unwrap();

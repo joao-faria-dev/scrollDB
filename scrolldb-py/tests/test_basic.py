@@ -1,14 +1,14 @@
 import tempfile
 import os
-import bunkr
+import scrolldb
 
 def test_database_open():
     """Test opening a new database"""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.bunkr') as f:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.scrolldb') as f:
         path = f.name
     
     try:
-        db = bunkr.Database.open(path)
+        db = scrolldb.Database.open(path)
         assert db.is_open()
         db.close()
     finally:
@@ -17,11 +17,11 @@ def test_database_open():
 
 def test_collection_insert_find():
     """Test inserting and finding documents"""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.bunkr') as f:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.scrolldb') as f:
         path = f.name
     
     try:
-        db = bunkr.Database.open(path)
+        db = scrolldb.Database.open(path)
         collection = db.collection("test")
         
         # Insert a document
@@ -50,11 +50,11 @@ def test_collection_insert_find():
 
 def test_update_delete():
     """Test updating and deleting documents"""
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.bunkr') as f:
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.scrolldb') as f:
         path = f.name
     
     try:
-        db = bunkr.Database.open(path)
+        db = scrolldb.Database.open(path)
         collection = db.collection("test")
         
         # Insert

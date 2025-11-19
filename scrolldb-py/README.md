@@ -1,11 +1,11 @@
-# Bunkr Python Bindings
+# ScrollDB Python Bindings
 
-Python bindings for Bunkr, a fast embedded document database.
+Python bindings for ScrollDB, a fast embedded document database.
 
 ## Installation
 
 ```bash
-pip install bunkr
+pip install scrolldb
 ```
 
 Or build from source:
@@ -17,10 +17,10 @@ maturin develop
 ## Quick Start
 
 ```python
-import bunkr
+import scrolldb
 
 # Open or create a database
-db = bunkr.Database.open("mydb.bunkr")
+db = scrolldb.Database.open("mydb.scrolldb")
 
 # Get a collection
 collection = db.collection("users")

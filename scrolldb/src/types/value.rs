@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 /// BSON-like Value type for documents
 ///
-/// Similar to serde_json::Value but optimized for Bunkr's needs
+/// Similar to serde_json::Value but optimized for ScrollDB's needs
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {

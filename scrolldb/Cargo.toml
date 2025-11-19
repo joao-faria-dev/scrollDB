@@ -1,5 +1,5 @@
 [package]
-name = "bunkr"
+name = "scrolldb"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -19,7 +19,7 @@ criterion = { version = "0.5", features = ["html_reports"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [[bench]]
-name = "bunkr_bench"
+name = "scrolldb_bench"
 harness = false
 
 [[bench]]

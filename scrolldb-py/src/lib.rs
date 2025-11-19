@@ -2,41 +2,41 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
 
-/// Python bindings for Bunkr database
+/// Python bindings for ScrollDB database
 #[pymodule]
-#[pyo3(name = "bunkr")]
-fn bunkr_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
+#[pyo3(name = "scrolldb")]
+fn scrolldb_py(_py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Database>()?;
     m.add_class::<Collection>()?;
     m.add_class::<DocumentIterator>()?;
     Ok(())
 }
 
-/// Convert Python object to Bunkr Value
-fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<bunkr::Value> {
+/// Convert Python object to ScrollDB Value
+fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<scrolldb::Value> {
     if obj.is_none() {
-        Ok(bunkr::Value::Null)
+        Ok(scrolldb::Value::Null)
     } else if let Ok(b) = obj.extract::<bool>() {
-        Ok(bunkr::Value::Bool(b))
+        Ok(scrolldb::Value::Bool(b))
     } else if let Ok(i) = obj.extract::<i64>() {
-        Ok(bunkr::Value::Int(i))
+        Ok(scrolldb::Value::Int(i))
     } else if let Ok(f) = obj.extract::<f64>() {
-        Ok(bunkr::Value::Float(f))
+        Ok(scrolldb::Value::Float(f))
     } else if let Ok(s) = obj.extract::<String>() {
-        Ok(bunkr::Value::String(s))
+        Ok(scrolldb::Value::String(s))
     } else if let Ok(list) = obj.downcast::<PyList>() {
         let mut vec = Vec::new();
         for item in list.iter() {
             vec.push(py_to_value(&item)?);
         }
-        Ok(bunkr::Value::Array(vec))
+        Ok(scrolldb::Value::Array(vec))
     } else if let Ok(dict) = obj.downcast::<PyDict>() {
         let mut map = HashMap::new();
         for (key, value) in dict.iter() {
             let key_str = key.extract::<String>()?;
             map.insert(key_str, py_to_value(&value)?);
         }
-        Ok(bunkr::Value::Object(map))
+        Ok(scrolldb::Value::Object(map))
     } else {
         Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
             "Unsupported Python type: {:?}",
@@ -45,22 +45,22 @@ fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<bunkr::Value> {
     }
 }
 
-/// Convert Bunkr Value to Python object
-fn value_to_py(value: &bunkr::Value, py: Python<'_>) -> PyResult<PyObject> {
+/// Convert ScrollDB Value to Python object
+fn value_to_py(value: &scrolldb::Value, py: Python<'_>) -> PyResult<PyObject> {
     match value {
-        bunkr::Value::Null => Ok(py.None()),
-        bunkr::Value::Bool(b) => Ok(b.into_py(py)),
-        bunkr::Value::Int(i) => Ok(i.into_py(py)),
-        bunkr::Value::Float(f) => Ok(f.into_py(py)),
-        bunkr::Value::String(s) => Ok(s.clone().into_py(py)),
-        bunkr::Value::Array(arr) => {
+        scrolldb::Value::Null => Ok(py.None()),
+        scrolldb::Value::Bool(b) => Ok(b.into_py(py)),
+        scrolldb::Value::Int(i) => Ok(i.into_py(py)),
+        scrolldb::Value::Float(f) => Ok(f.into_py(py)),
+        scrolldb::Value::String(s) => Ok(s.clone().into_py(py)),
+        scrolldb::Value::Array(arr) => {
             let list = PyList::empty_bound(py);
             for item in arr {
                 list.append(value_to_py(item, py)?)?;
             }
             Ok(list.into())
         }
-        bunkr::Value::Object(map) => {
+        scrolldb::Value::Object(map) => {
             let dict = PyDict::new_bound(py);
             for (key, val) in map {
                 dict.set_item(key, value_to_py(val, py)?)?;
@@ -72,7 +72,7 @@ fn value_to_py(value: &bunkr::Value, py: Python<'_>) -> PyResult<PyObject> {
 
 #[pyclass]
 struct Database {
-    inner: bunkr::Database,
+    inner: scrolldb::Database,
 }
 
 #[pymethods]
@@ -87,7 +87,7 @@ impl Database {
     /// Open a database file
     #[staticmethod]
     fn open(path: &str) -> PyResult<Self> {
-        let db = bunkr::Database::open(path)
+        let db = scrolldb::Database::open(path)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(Self { inner: db })
     }
@@ -127,7 +127,7 @@ impl Drop for Database {
 
 #[pyclass]
 struct Collection {
-    inner: bunkr::Collection,
+    inner: scrolldb::Collection,
 }
 
 #[pymethods]
@@ -156,7 +156,7 @@ impl Collection {
     ///
     /// Returns the document as a dict, or None if not found.
     fn find_by_id(&mut self, py: Python<'_>, id: &str) -> PyResult<Option<PyObject>> {
-        let object_id = bunkr::ObjectId::from_hex(id).map_err(|e| {
+        let object_id = scrolldb::ObjectId::from_hex(id).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid ObjectId: {}", e))
         })?;
 
@@ -248,7 +248,7 @@ impl Collection {
 /// Python iterator over documents
 #[pyclass]
 struct DocumentIterator {
-    inner: bunkr::FilteredDocumentIterator,
+    inner: scrolldb::FilteredDocumentIterator,
 }
 
 #[pymethods]

@@ -45,6 +45,6 @@ htmlcov/
 *.cover
 
 # Maturin
-bunkr-py/target/
-bunkr-py/wheels/
-
+scrolldb-py/target/
+scrolldb-py/wheels/
+scrolldb/benches

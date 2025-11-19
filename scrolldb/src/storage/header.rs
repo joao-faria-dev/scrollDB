@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use std::io::{Read, Seek, SeekFrom, Write};
 
-/// Magic bytes identifying a Bunkr database file
-pub const MAGIC_BYTES: [u8; 8] = *b"BUNKR\0\0\0";
+/// Magic bytes identifying a ScrollDB database file
+pub const MAGIC_BYTES: [u8; 8] = *b"SCRLDB\0\0";
 
 /// Current file format version
 pub const FILE_VERSION: u32 = 1;
@@ -13,7 +13,7 @@ pub const HEADER_SIZE: usize = 32;
 /// Database file header
 #[derive(Debug, Clone)]
 pub struct Header {
-    /// Magic bytes to identify Bunkr files
+    /// Magic bytes to identify ScrollDB files
     pub magic: [u8; 8],
     /// File format version
     pub version: u32,

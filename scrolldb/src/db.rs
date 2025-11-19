@@ -4,7 +4,7 @@ use crate::storage::{Header, PageManager};
 use std::fs::OpenOptions;
 use std::path::{Path, PathBuf};
 
-/// Database handle for Bunkr
+/// Database handle for ScrollDB
 pub struct Database {
     path: PathBuf,
     page_manager: Option<PageManager>,
@@ -124,7 +124,7 @@ mod tests {
     #[test]
     fn test_open_new_file_creates_header() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         let db = Database::open(&path).unwrap();
         db.close().unwrap();
@@ -139,7 +139,7 @@ mod tests {
     #[test]
     fn test_open_existing_file_validates_header() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         // Create database
         let db1 = Database::open(&path).unwrap();
@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn test_is_open() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         let db = Database::open(&path).unwrap();
         assert!(db.is_open());
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn test_open_empty_file_errors() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         // Create empty file
         std::fs::File::create(&path).unwrap();
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn test_open_corrupted_file_errors() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         // Create file with invalid magic bytes
         let mut file = std::fs::File::create(&path).unwrap();
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn test_open_invalid_version_errors() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         // Create file with valid magic but invalid version
         let mut file = std::fs::File::create(&path).unwrap();
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_close_flushes_file() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         let db = Database::open(&path).unwrap();
         assert!(db.is_open());
@@ -237,7 +237,7 @@ mod tests {
     #[test]
     fn test_drop_closes_file() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         {
             let db = Database::open(&path).unwrap();
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_open_close_reopen_cycle() {
         let temp_dir = TempDir::new().unwrap();
-        let path = temp_dir.path().join("test.bunkr");
+        let path = temp_dir.path().join("test.scrolldb");
 
         // First open
         let db1 = Database::open(&path).unwrap();
