@@ -1,7 +1,8 @@
 use crate::error::{Error, Result};
+use crate::index::IdIndex;
+use crate::storage::page::{Page, PageId};
 use crate::storage::page_manager::PageManager;
 use crate::storage::{read_document, write_document, PageType};
-use crate::storage::page::{Page, PageId};
 use crate::types::{ObjectId, Value};
 
 /// Collection handle for a named collection in the database
@@ -10,17 +11,101 @@ pub struct Collection {
     page_manager: PageManager,
     file_path: std::path::PathBuf,
     text_index: Option<crate::index::TextIndex>,
+    id_index: Option<IdIndex>,
+    batch_mode: bool,
 }
 
 impl Collection {
     /// Create a new collection with the given name and page manager
-    pub(crate) fn new(name: String, page_manager: PageManager, file_path: std::path::PathBuf) -> Self {
-        Self { 
-            name, 
-            page_manager, 
+    pub(crate) fn new(
+        name: String,
+        page_manager: PageManager,
+        file_path: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            name,
+            page_manager,
             file_path,
             text_index: None,
+            id_index: None,
+            batch_mode: false,
         }
+    }
+
+    /// Load or get the ID index, building it if necessary
+    fn ensure_id_index(&mut self) -> Result<&mut IdIndex> {
+        if self.id_index.is_none() {
+            // Build index by scanning all documents
+            self.page_manager.flush()?;
+
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .open(&self.file_path)
+                .map_err(Error::Io)?;
+
+            let mut page_manager = PageManager::from_file(file)?;
+
+            // Get max page ID
+            let metadata = page_manager.file().metadata().map_err(Error::Io)?;
+            let file_size = metadata.len();
+            let header_size = crate::storage::HEADER_SIZE as u64;
+            let page_size = crate::storage::PAGE_SIZE as u64;
+
+            let max_page_id = if file_size <= header_size {
+                0
+            } else {
+                let data_size = file_size - header_size;
+                (data_size / page_size) as PageId
+            };
+
+            let mut index = IdIndex::new();
+            let mut visited_pages = std::collections::HashSet::new();
+
+            // Scan all pages to build index
+            for page_id in 0..max_page_id {
+                if visited_pages.contains(&page_id) {
+                    continue;
+                }
+
+                let page = match Page::read_from(page_manager.file(), page_id) {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+
+                if page.header.page_type == PageType::Data && !page.data.is_empty() {
+                    // Try to extract ObjectId from page
+                    if let Some(object_id) =
+                        crate::storage::document::extract_object_id_from_page(&page.data)
+                    {
+                        index.insert(object_id, page_id);
+
+                        // Mark all pages in this document as visited
+                        let mut current_page_id = page_id;
+                        visited_pages.insert(current_page_id);
+
+                        const NO_NEXT_PAGE: PageId = u32::MAX;
+                        let mut next_page_id = page.header.next_page;
+                        while next_page_id != NO_NEXT_PAGE {
+                            visited_pages.insert(next_page_id);
+                            current_page_id = next_page_id;
+
+                            if let Ok(next_page) =
+                                Page::read_from(page_manager.file(), current_page_id)
+                            {
+                                next_page_id = next_page.header.next_page;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            self.id_index = Some(index);
+        }
+
+        Ok(self.id_index.as_mut().unwrap())
     }
 
     /// Get the collection name
@@ -68,11 +153,7 @@ impl Collection {
         let doc_header_size = 16; // DocumentHeader::SIZE
         let total_size = doc_header_size + doc_bytes.len();
         let max_page_data = crate::storage::page::PageHeader::max_data_size();
-        let pages_needed = if total_size <= max_page_data {
-            1
-        } else {
-            (total_size + max_page_data - 1) / max_page_data
-        };
+        let pages_needed = total_size.div_ceil(max_page_data);
 
         // Allocate pages first
         let mut page_ids = Vec::with_capacity(pages_needed);
@@ -89,8 +170,15 @@ impl Collection {
             Ok(id)
         };
 
-        write_document(file, object_id, &doc, &mut allocate)?;
-        self.page_manager.flush()?;
+        let first_page_id = write_document(file, object_id, &doc, &mut allocate)?;
+
+        // Update ID index
+        self.ensure_id_index()?.insert(object_id, first_page_id);
+
+        // Flush only if not in batch mode
+        if !self.batch_mode {
+            self.page_manager.flush()?;
+        }
 
         // Update text index if it exists
         if let Some(ref mut index) = self.text_index {
@@ -107,6 +195,26 @@ impl Collection {
         Ok(object_id)
     }
 
+    /// Insert multiple documents in a batch
+    ///
+    /// This is more efficient than calling `insert_one` multiple times
+    /// because it defers flushes until all documents are inserted.
+    pub fn insert_many(&mut self, docs: Vec<Value>) -> Result<Vec<ObjectId>> {
+        // Enable batch mode
+        self.batch_mode = true;
+
+        let mut ids = Vec::with_capacity(docs.len());
+        for doc in docs {
+            let id = self.insert_one(doc)?;
+            ids.push(id);
+        }
+
+        // Disable batch mode and flush
+        self.batch_mode = false;
+        self.page_manager.flush()?;
+
+        Ok(ids)
+    }
 }
 
 /// Iterator over all documents in a collection
@@ -130,7 +238,7 @@ impl DocumentIterator {
         let file_size = metadata.len();
         let header_size = crate::storage::HEADER_SIZE as u64;
         let page_size = crate::storage::PAGE_SIZE as u64;
-        
+
         let max_page_id = if file_size <= header_size {
             0
         } else {
@@ -152,7 +260,7 @@ impl Iterator for DocumentIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         const NO_NEXT_PAGE: PageId = u32::MAX;
-        
+
         loop {
             // Check if we've exhausted all pages
             if self.current_page_id >= self.max_page_id {
@@ -186,22 +294,23 @@ impl Iterator for DocumentIterator {
                             let mut page_id = self.current_page_id;
                             loop {
                                 self.visited_pages.insert(page_id);
-                                
+
                                 // Check if there's a next page in the chain
-                                let next_page = match Page::read_from(self.page_manager.file(), page_id) {
-                                    Ok(p) => p,
-                                    Err(_) => break,
-                                };
-                                
+                                let next_page =
+                                    match Page::read_from(self.page_manager.file(), page_id) {
+                                        Ok(p) => p,
+                                        Err(_) => break,
+                                    };
+
                                 if next_page.header.next_page == NO_NEXT_PAGE {
                                     break;
                                 }
                                 page_id = next_page.header.next_page;
                             }
-                            
+
                             // Move to next page for next iteration
                             self.current_page_id += 1;
-                            
+
                             return Some(Ok(value));
                         }
                         Err(_) => {
@@ -229,7 +338,7 @@ impl Iterator for FilteredDocumentIterator {
 
     fn next(&mut self) -> Option<Self::Item> {
         use crate::query::matcher;
-        
+
         loop {
             match self.inner.next() {
                 Some(Ok(doc)) => {
@@ -252,14 +361,14 @@ impl Collection {
     pub fn iter(&mut self) -> Result<DocumentIterator> {
         // Flush any pending writes
         self.page_manager.flush()?;
-        
+
         // Create a new PageManager for reading (iterator needs its own file handle)
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&self.file_path)
             .map_err(Error::Io)?;
-        
+
         let page_manager = PageManager::from_file(file)?;
         DocumentIterator::new(page_manager)
     }
@@ -270,24 +379,26 @@ impl Collection {
     pub fn find_by_id(&mut self, id: &ObjectId) -> Result<Option<Value>> {
         // Flush any pending writes
         self.page_manager.flush()?;
-        
+
+        // Use index to find page ID
+        let page_id = match self.ensure_id_index()?.get(id) {
+            Some(pid) => pid,
+            None => return Ok(None),
+        };
+
         // Create a new PageManager for reading
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(&self.file_path)
             .map_err(Error::Io)?;
-        
+
         let mut page_manager = PageManager::from_file(file)?;
-        
-        // Use find_document_by_id to locate the document
-        use crate::storage::find_document_by_id;
-        if let Some(page_id) = find_document_by_id(page_manager.file(), *id, 0, 10000)? {
-            // Read the document
-            let (_, value) = read_document(page_manager.file(), page_id)?;
-            Ok(Some(value))
-        } else {
-            Ok(None)
+
+        // Read the document
+        match read_document(page_manager.file(), page_id) {
+            Ok((_, value)) => Ok(Some(value)),
+            Err(_) => Ok(None), // Document may have been deleted
         }
     }
 
@@ -296,18 +407,18 @@ impl Collection {
     /// Supports exact match queries with dotted paths and text search.
     /// Returns an iterator over matching documents.
     pub fn find(&mut self, query: Value) -> Result<FilteredDocumentIterator> {
-        use crate::query::{Query, text::TextSearchQuery};
-        
+        use crate::query::{text::TextSearchQuery, Query};
+
         // Parse query
         let parsed_query = Query::from_value(query.clone())?;
-        
+
         // Check if this is a $text query and create index if needed
         if let Some(text_value) = parsed_query.fields().get("$text") {
             if let Ok(_text_query) = TextSearchQuery::from_value(text_value) {
                 // Create text index if it doesn't exist
                 if self.text_index.is_none() {
                     let mut index = crate::index::TextIndex::new();
-                    
+
                     // Index all existing documents
                     let mut iter = self.iter()?;
                     while let Some(Ok(doc)) = iter.next() {
@@ -318,12 +429,12 @@ impl Collection {
                             }
                         }
                     }
-                    
+
                     self.text_index = Some(index);
                 }
             }
         }
-        
+
         // Create filtered iterator
         let iter = self.iter()?;
         Ok(FilteredDocumentIterator {
@@ -336,16 +447,15 @@ impl Collection {
     ///
     /// Returns the number of documents updated (0 or 1).
     pub fn update_one(&mut self, filter: Value, update: Value) -> Result<u64> {
-        use crate::query::{Query, update::UpdateModifier, matcher};
-        use crate::storage::find_document_by_id;
-        
+        use crate::query::{matcher, update::UpdateModifier, Query};
+
         // Parse filter and update
         let filter_query = Query::from_value(filter)?;
         let modifiers = UpdateModifier::from_value(&update)?;
-        
+
         // Flush pending writes
         self.page_manager.flush()?;
-        
+
         // Find first matching document by iterating through all documents
         let mut iter = self.iter()?;
         while let Some(Ok(mut doc)) = iter.next() {
@@ -361,72 +471,91 @@ impl Collection {
                 } else {
                     None
                 };
-                
+
                 if let Some(id) = doc_id {
                     // Apply all modifiers
                     for modifier in &modifiers {
                         modifier.apply(&mut doc)?;
                     }
-                    
-                    // Find the document's page
+
+                    // Use index to find document's page
+                    let old_page_id = match self.ensure_id_index()?.get(&id) {
+                        Some(pid) => pid,
+                        None => continue, // Document not found in index
+                    };
+
+                    // Get all page IDs in the chain
                     let file = std::fs::OpenOptions::new()
                         .read(true)
                         .write(true)
                         .open(&self.file_path)
                         .map_err(Error::Io)?;
                     let mut page_manager = PageManager::from_file(file)?;
-                    
-                    if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
-                        // Read to get all page IDs in the chain
-                        let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
-                        let mut page_ids = vec![page_id];
-                        let mut current = page.header.next_page;
-                        const NO_NEXT_PAGE: PageId = u32::MAX;
-                        while current != NO_NEXT_PAGE {
-                            page_ids.push(current);
-                            let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
-                            current = next_page.header.next_page;
-                        }
-                        
-                        // Deallocate old pages
-                        for pid in &page_ids {
-                            page_manager.deallocate_page(*pid)?;
-                        }
-                        
-                        // Pre-allocate pages for updated document
-                        let doc_bytes = crate::storage::serialize_document(&doc)?;
-                        let doc_header_size = 16;
-                        let total_size = doc_header_size + doc_bytes.len();
-                        let max_page_data = crate::storage::page::PageHeader::max_data_size();
-                        let pages_needed = if total_size <= max_page_data {
-                            1
-                        } else {
-                            (total_size + max_page_data - 1) / max_page_data
+
+                    let page = match crate::storage::page::Page::read_from(
+                        page_manager.file(),
+                        old_page_id,
+                    ) {
+                        Ok(p) => p,
+                        Err(_) => continue, // Page not found
+                    };
+
+                    let mut page_ids = vec![old_page_id];
+                    let mut current = page.header.next_page;
+                    const NO_NEXT_PAGE: PageId = u32::MAX;
+                    while current != NO_NEXT_PAGE {
+                        page_ids.push(current);
+                        let next_page = match crate::storage::page::Page::read_from(
+                            page_manager.file(),
+                            current,
+                        ) {
+                            Ok(p) => p,
+                            Err(_) => break,
                         };
-                        
-                        let mut new_page_ids = Vec::with_capacity(pages_needed);
-                        for _ in 0..pages_needed {
-                            new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
-                        }
-                        
-                        // Write updated document
-                        let file = self.page_manager.file();
-                        let mut page_id_counter = 0usize;
-                        let mut allocate = || {
-                            let id = new_page_ids[page_id_counter];
-                            page_id_counter += 1;
-                            Ok(id)
-                        };
-                        
-                        write_document(file, id, &doc, &mut allocate)?;
-                        self.page_manager.flush()?;
-                        
-                        return Ok(1);
+                        current = next_page.header.next_page;
                     }
+
+                    // Deallocate old pages
+                    for pid in &page_ids {
+                        page_manager.deallocate_page(*pid)?;
+                    }
+
+                    // Pre-allocate pages for updated document
+                    let doc_bytes = crate::storage::serialize_document(&doc)?;
+                    let doc_header_size = 16;
+                    let total_size = doc_header_size + doc_bytes.len();
+                    let max_page_data = crate::storage::page::PageHeader::max_data_size();
+                    let pages_needed = total_size.div_ceil(max_page_data);
+
+                    let mut new_page_ids = Vec::with_capacity(pages_needed);
+                    for _ in 0..pages_needed {
+                        new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
+                    }
+
+                    // Write updated document
+                    let file = self.page_manager.file();
+                    let mut page_id_counter = 0usize;
+                    let mut allocate = || {
+                        let id = new_page_ids[page_id_counter];
+                        page_id_counter += 1;
+                        Ok(id)
+                    };
+
+                    let new_first_page_id = write_document(file, id, &doc, &mut allocate)?;
+
+                    // Update index with new page ID
+                    self.ensure_id_index()?.insert(id, new_first_page_id);
+
+                    // Flush only if not in batch mode
+                    if !self.batch_mode {
+                        self.page_manager.flush()?;
+                    }
+
+                    return Ok(1);
                 }
             }
         }
-        
+
         Ok(0)
     }
 
@@ -434,19 +563,18 @@ impl Collection {
     ///
     /// Returns the number of documents updated.
     pub fn update_many(&mut self, filter: Value, update: Value) -> Result<u64> {
-        use crate::query::{Query, update::UpdateModifier, matcher};
-        use crate::storage::find_document_by_id;
-        
+        use crate::query::{matcher, update::UpdateModifier, Query};
+
         // Parse filter and update
         let filter_query = Query::from_value(filter)?;
         let modifiers = UpdateModifier::from_value(&update)?;
-        
+
         // Flush pending writes
         self.page_manager.flush()?;
-        
+
         let mut updated_count = 0u64;
         let mut iter = self.iter()?;
-        
+
         // Collect all matching documents with their IDs
         let mut to_update: Vec<(ObjectId, Value)> = Vec::new();
         while let Some(Ok(doc)) = iter.next() {
@@ -460,70 +588,85 @@ impl Collection {
                 }
             }
         }
-        
+
         // Update each document
         for (id, mut doc) in to_update {
             // Apply all modifiers
             for modifier in &modifiers {
                 modifier.apply(&mut doc)?;
             }
-            
-            // Find and replace the document
+
+            // Use index to find document's page
+            let old_page_id = match self.ensure_id_index()?.get(&id) {
+                Some(pid) => pid,
+                None => continue, // Document not found in index
+            };
+
+            // Get all page IDs in chain
             let file = std::fs::OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(&self.file_path)
                 .map_err(Error::Io)?;
             let mut page_manager = PageManager::from_file(file)?;
-            
-            if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
-                // Get all page IDs in chain
-                let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
-                let mut page_ids = vec![page_id];
-                let mut current = page.header.next_page;
-                const NO_NEXT_PAGE: PageId = u32::MAX;
-                while current != NO_NEXT_PAGE {
-                    page_ids.push(current);
-                    let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
-                    current = next_page.header.next_page;
-                }
-                
-                // Deallocate old pages
-                for pid in &page_ids {
-                    page_manager.deallocate_page(*pid)?;
-                }
-                
-                // Pre-allocate pages for updated document
-                let doc_bytes = crate::storage::serialize_document(&doc)?;
-                let doc_header_size = 16;
-                let total_size = doc_header_size + doc_bytes.len();
-                let max_page_data = crate::storage::page::PageHeader::max_data_size();
-                let pages_needed = if total_size <= max_page_data {
-                    1
-                } else {
-                    (total_size + max_page_data - 1) / max_page_data
-                };
-                
-                let mut new_page_ids = Vec::with_capacity(pages_needed);
-                for _ in 0..pages_needed {
-                    new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
-                }
-                
-                // Write updated document
-                let file = self.page_manager.file();
-                let mut page_id_counter = 0usize;
-                let mut allocate = || {
-                    let id = new_page_ids[page_id_counter];
-                    page_id_counter += 1;
-                    Ok(id)
-                };
-                
-                write_document(file, id, &doc, &mut allocate)?;
-                updated_count += 1;
+
+            let page = match crate::storage::page::Page::read_from(page_manager.file(), old_page_id)
+            {
+                Ok(p) => p,
+                Err(_) => continue, // Page not found
+            };
+
+            let mut page_ids = vec![old_page_id];
+            let mut current = page.header.next_page;
+            const NO_NEXT_PAGE: PageId = u32::MAX;
+            while current != NO_NEXT_PAGE {
+                page_ids.push(current);
+                let next_page =
+                    match crate::storage::page::Page::read_from(page_manager.file(), current) {
+                        Ok(p) => p,
+                        Err(_) => break,
+                    };
+                current = next_page.header.next_page;
             }
+
+            // Deallocate old pages
+            for pid in &page_ids {
+                page_manager.deallocate_page(*pid)?;
+            }
+
+            // Pre-allocate pages for updated document
+            let doc_bytes = crate::storage::serialize_document(&doc)?;
+            let doc_header_size = 16;
+            let total_size = doc_header_size + doc_bytes.len();
+            let max_page_data = crate::storage::page::PageHeader::max_data_size();
+            let pages_needed = total_size.div_ceil(max_page_data);
+
+            let mut new_page_ids = Vec::with_capacity(pages_needed);
+            for _ in 0..pages_needed {
+                new_page_ids.push(self.page_manager.allocate_page(PageType::Data)?);
+            }
+
+            // Write updated document
+            let file = self.page_manager.file();
+            let mut page_id_counter = 0usize;
+            let mut allocate = || {
+                let id = new_page_ids[page_id_counter];
+                page_id_counter += 1;
+                Ok(id)
+            };
+
+            let new_first_page_id = write_document(file, id, &doc, &mut allocate)?;
+
+            // Update index with new page ID
+            self.ensure_id_index()?.insert(id, new_first_page_id);
+
+            updated_count += 1;
         }
-        
-        self.page_manager.flush()?;
+
+        // Flush only if not in batch mode
+        if !self.batch_mode {
+            self.page_manager.flush()?;
+        }
         Ok(updated_count)
     }
 
@@ -531,15 +674,14 @@ impl Collection {
     ///
     /// Returns the number of documents deleted (0 or 1).
     pub fn delete_one(&mut self, filter: Value) -> Result<u64> {
-        use crate::query::{Query, matcher};
-        use crate::storage::find_document_by_id;
-        
+        use crate::query::{matcher, Query};
+
         // Parse filter
         let filter_query = Query::from_value(filter)?;
-        
+
         // Flush pending writes
         self.page_manager.flush()?;
-        
+
         // Find first matching document by iterating through all documents
         let mut iter = self.iter()?;
         while let Some(Ok(doc)) = iter.next() {
@@ -555,40 +697,61 @@ impl Collection {
                 } else {
                     None
                 };
-                
+
                 if let Some(id) = doc_id {
-                    // Find the document's page
+                    // Use index to find document's page
+                    let page_id = match self.ensure_id_index()?.get(&id) {
+                        Some(pid) => pid,
+                        None => continue, // Document not found in index
+                    };
+
+                    // Get all page IDs in the chain
                     let file = std::fs::OpenOptions::new()
                         .read(true)
                         .write(true)
                         .open(&self.file_path)
                         .map_err(Error::Io)?;
                     let mut page_manager = PageManager::from_file(file)?;
-                    
-                    if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
-                        // Get all page IDs in the chain
-                        let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
-                        let mut page_ids = vec![page_id];
-                        let mut current = page.header.next_page;
-                        const NO_NEXT_PAGE: PageId = u32::MAX;
-                        while current != NO_NEXT_PAGE {
-                            page_ids.push(current);
-                            let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
-                            current = next_page.header.next_page;
-                        }
-                        
-                        // Deallocate all pages
-                        for pid in &page_ids {
-                            page_manager.deallocate_page(*pid)?;
-                        }
-                        
-                        self.page_manager.flush()?;
-                        return Ok(1);
+
+                    let page =
+                        match crate::storage::page::Page::read_from(page_manager.file(), page_id) {
+                            Ok(p) => p,
+                            Err(_) => continue, // Page not found
+                        };
+
+                    let mut page_ids = vec![page_id];
+                    let mut current = page.header.next_page;
+                    const NO_NEXT_PAGE: PageId = u32::MAX;
+                    while current != NO_NEXT_PAGE {
+                        page_ids.push(current);
+                        let next_page = match crate::storage::page::Page::read_from(
+                            page_manager.file(),
+                            current,
+                        ) {
+                            Ok(p) => p,
+                            Err(_) => break,
+                        };
+                        current = next_page.header.next_page;
                     }
+
+                    // Deallocate all pages
+                    for pid in &page_ids {
+                        page_manager.deallocate_page(*pid)?;
+                    }
+
+                    // Remove from index
+                    self.ensure_id_index()?.remove(&id);
+
+                    // Flush only if not in batch mode
+                    if !self.batch_mode {
+                        self.page_manager.flush()?;
+                    }
+
+                    return Ok(1);
                 }
             }
         }
-        
+
         Ok(0)
     }
 
@@ -596,18 +759,17 @@ impl Collection {
     ///
     /// Returns the number of documents deleted.
     pub fn delete_many(&mut self, filter: Value) -> Result<u64> {
-        use crate::query::{Query, matcher};
-        use crate::storage::find_document_by_id;
-        
+        use crate::query::{matcher, Query};
+
         // Parse filter
         let filter_query = Query::from_value(filter)?;
-        
+
         // Flush pending writes
         self.page_manager.flush()?;
-        
+
         let mut deleted_count = 0u64;
         let mut iter = self.iter()?;
-        
+
         // Collect all matching document IDs
         let mut to_delete: Vec<ObjectId> = Vec::new();
         while let Some(Ok(doc)) = iter.next() {
@@ -621,7 +783,7 @@ impl Collection {
                 }
             }
         }
-        
+
         // Delete each document
         let file = std::fs::OpenOptions::new()
             .read(true)
@@ -629,30 +791,49 @@ impl Collection {
             .open(&self.file_path)
             .map_err(Error::Io)?;
         let mut page_manager = PageManager::from_file(file)?;
-        
+
+        // Use index to find all document pages
+        let index = self.ensure_id_index()?;
         for id in to_delete {
-            if let Some(page_id) = find_document_by_id(page_manager.file(), id, 0, 10000)? {
-                // Get all page IDs in chain
-                let page = crate::storage::page::Page::read_from(page_manager.file(), page_id)?;
-                let mut page_ids = vec![page_id];
-                let mut current = page.header.next_page;
-                const NO_NEXT_PAGE: PageId = u32::MAX;
-                while current != NO_NEXT_PAGE {
-                    page_ids.push(current);
-                    let next_page = crate::storage::page::Page::read_from(page_manager.file(), current)?;
-                    current = next_page.header.next_page;
-                }
-                
-                // Deallocate all pages
-                for pid in &page_ids {
-                    page_manager.deallocate_page(*pid)?;
-                }
-                
-                deleted_count += 1;
+            let page_id = match index.get(&id) {
+                Some(pid) => pid,
+                None => continue, // Document not found in index
+            };
+
+            let page = match crate::storage::page::Page::read_from(page_manager.file(), page_id) {
+                Ok(p) => p,
+                Err(_) => continue, // Page not found
+            };
+
+            // Get all page IDs in chain
+            let mut page_ids = vec![page_id];
+            let mut current = page.header.next_page;
+            const NO_NEXT_PAGE: PageId = u32::MAX;
+            while current != NO_NEXT_PAGE {
+                page_ids.push(current);
+                let next_page =
+                    match crate::storage::page::Page::read_from(page_manager.file(), current) {
+                        Ok(p) => p,
+                        Err(_) => break,
+                    };
+                current = next_page.header.next_page;
             }
+
+            // Deallocate all pages
+            for pid in &page_ids {
+                page_manager.deallocate_page(*pid)?;
+            }
+
+            // Remove from index
+            index.remove(&id);
+
+            deleted_count += 1;
         }
-        
-        self.page_manager.flush()?;
+
+        // Flush only if not in batch mode
+        if !self.batch_mode {
+            self.page_manager.flush()?;
+        }
         Ok(deleted_count)
     }
 }
@@ -667,17 +848,18 @@ mod tests {
     fn create_test_collection() -> (NamedTempFile, Collection) {
         let temp_file = NamedTempFile::new().unwrap();
         let path = temp_file.path().to_path_buf();
-        
+
         let mut file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
+            .truncate(true)
             .open(&path)
             .unwrap();
-        
+
         let header = Header::new();
         header.write_to(&mut file).unwrap();
-        
+
         let page_manager = PageManager::new(file);
         let collection = Collection::new("users".to_string(), page_manager, path);
         (temp_file, collection)
@@ -700,10 +882,10 @@ mod tests {
         }
 
         let id = collection.insert_one(doc).unwrap();
-        
+
         // Verify _id was added
         assert!(!id.to_string().is_empty());
-        
+
         // Verify document was written (we can't easily read it back yet, but we can check it doesn't error)
     }
 
@@ -719,7 +901,7 @@ mod tests {
         }
 
         let id = collection.insert_one(doc).unwrap();
-        
+
         // Verify the provided _id was used
         assert_eq!(id, existing_id);
     }
@@ -742,7 +924,7 @@ mod tests {
 
         let id1 = collection.insert_one(doc1).unwrap();
         let id2 = collection.insert_one(doc2).unwrap();
-        
+
         // Verify both documents got unique IDs
         assert_ne!(id1, id2);
     }
@@ -753,7 +935,7 @@ mod tests {
 
         // Try to insert a non-Object value
         let doc = Value::String("not an object".to_string());
-        
+
         let result = collection.insert_one(doc);
         assert!(result.is_err());
         if let Err(Error::CorruptedDatabase { reason }) = result {
@@ -899,7 +1081,7 @@ mod tests {
         if let Value::Object(ref mut map) = query {
             map.insert("name".to_string(), Value::String("Alice".to_string()));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -931,7 +1113,7 @@ mod tests {
         if let Value::Object(ref mut map) = query {
             map.insert("profile.age".to_string(), Value::Int(30));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -957,7 +1139,7 @@ mod tests {
         if let Value::Object(ref mut map) = query {
             map.insert("age".to_string(), Value::Int(30));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         assert!(iter.next().is_none());
     }
@@ -983,7 +1165,7 @@ mod tests {
             address_query.insert("city".to_string(), Value::String("NYC".to_string()));
             map.insert("address".to_string(), Value::Object(address_query));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -1017,7 +1199,7 @@ mod tests {
             op.insert("$gt".to_string(), Value::Int(25));
             map.insert("age".to_string(), Value::Object(op));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -1053,13 +1235,16 @@ mod tests {
         let mut query = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = query {
             let mut op = std::collections::HashMap::new();
-            op.insert("$in".to_string(), Value::Array(vec![
-                Value::String("admin".to_string()),
-                Value::String("moderator".to_string()),
-            ]));
+            op.insert(
+                "$in".to_string(),
+                Value::Array(vec![
+                    Value::String("admin".to_string()),
+                    Value::String("moderator".to_string()),
+                ]),
+            );
             map.insert("role".to_string(), Value::Object(op));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -1086,17 +1271,17 @@ mod tests {
         if let Value::Object(ref mut map) = filter {
             map.insert("_id".to_string(), Value::String(id.to_string()));
         }
-        
+
         let mut update = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = update {
             let mut set_op = std::collections::HashMap::new();
             set_op.insert("age".to_string(), Value::Int(26));
             map.insert("$set".to_string(), Value::Object(set_op));
         }
-        
+
         let count = collection.update_one(filter, update).unwrap();
         assert_eq!(count, 1);
-        
+
         // Verify update
         let found = collection.find_by_id(&id).unwrap();
         if let Some(Value::Object(map)) = found {
@@ -1126,14 +1311,14 @@ mod tests {
         if let Value::Object(ref mut map) = filter {
             map.insert("status".to_string(), Value::String("active".to_string()));
         }
-        
+
         let mut update = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = update {
             let mut set_op = std::collections::HashMap::new();
             set_op.insert("status".to_string(), Value::String("inactive".to_string()));
             map.insert("$set".to_string(), Value::Object(set_op));
         }
-        
+
         let count = collection.update_many(filter, update).unwrap();
         assert_eq!(count, 2);
     }
@@ -1156,23 +1341,34 @@ mod tests {
         if let Value::Object(ref mut map) = filter {
             map.insert("name".to_string(), Value::String("Bob".to_string()));
         }
-        
+
         let mut update = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = update {
             let mut set_op = std::collections::HashMap::new();
             set_op.insert("age".to_string(), Value::Int(26));
             map.insert("$set".to_string(), Value::Object(set_op));
         }
-        
+
         let count = collection.update_one(filter, update).unwrap();
-        assert_eq!(count, 1, "update_one should update 1 document when filtering by name");
-        
+        assert_eq!(
+            count, 1,
+            "update_one should update 1 document when filtering by name"
+        );
+
         // Verify the update
         let found = collection.find_by_id(&id).unwrap();
         assert!(found.is_some(), "Document should still exist after update");
         if let Some(Value::Object(map)) = found {
-            assert_eq!(map.get("age"), Some(&Value::Int(26)), "Age should be updated to 26");
-            assert_eq!(map.get("name"), Some(&Value::String("Bob".to_string())), "Name should still be Bob");
+            assert_eq!(
+                map.get("age"),
+                Some(&Value::Int(26)),
+                "Age should be updated to 26"
+            );
+            assert_eq!(
+                map.get("name"),
+                Some(&Value::String("Bob".to_string())),
+                "Name should still be Bob"
+            );
         }
     }
 
@@ -1194,10 +1390,13 @@ mod tests {
         if let Value::Object(ref mut map) = filter {
             map.insert("name".to_string(), Value::String("Charlie".to_string()));
         }
-        
+
         let count = collection.delete_one(filter).unwrap();
-        assert_eq!(count, 1, "delete_one should delete 1 document when filtering by name");
-        
+        assert_eq!(
+            count, 1,
+            "delete_one should delete 1 document when filtering by name"
+        );
+
         // Verify the deletion
         let found = collection.find_by_id(&id).unwrap();
         assert!(found.is_none(), "Document should be deleted");
@@ -1219,10 +1418,10 @@ mod tests {
         if let Value::Object(ref mut map) = filter {
             map.insert("_id".to_string(), Value::String(id.to_string()));
         }
-        
+
         let count = collection.delete_one(filter).unwrap();
         assert_eq!(count, 1);
-        
+
         // Verify deletion
         let found = collection.find_by_id(&id).unwrap();
         assert!(found.is_none());
@@ -1252,7 +1451,7 @@ mod tests {
             op.insert("$lt".to_string(), Value::Int(18));
             map.insert("age".to_string(), Value::Object(op));
         }
-        
+
         let count = collection.delete_many(filter).unwrap();
         assert_eq!(count, 1);
     }
@@ -1264,14 +1463,23 @@ mod tests {
         // Insert documents with text
         let mut doc1 = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = doc1 {
-            map.insert("title".to_string(), Value::String("Rust Database".to_string()));
-            map.insert("content".to_string(), Value::String("Embedded storage system".to_string()));
+            map.insert(
+                "title".to_string(),
+                Value::String("Rust Database".to_string()),
+            );
+            map.insert(
+                "content".to_string(),
+                Value::String("Embedded storage system".to_string()),
+            );
         }
         collection.insert_one(doc1).unwrap();
 
         let mut doc2 = Value::Object(std::collections::HashMap::new());
         if let Value::Object(ref mut map) = doc2 {
-            map.insert("title".to_string(), Value::String("Python Tutorial".to_string()));
+            map.insert(
+                "title".to_string(),
+                Value::String("Python Tutorial".to_string()),
+            );
         }
         collection.insert_one(doc2).unwrap();
 
@@ -1282,7 +1490,7 @@ mod tests {
             text_op.insert("$search".to_string(), Value::String("rust".to_string()));
             map.insert("$text".to_string(), Value::Object(text_op));
         }
-        
+
         let mut iter = collection.find(query).unwrap();
         let mut count = 0;
         while let Some(result) = iter.next() {
@@ -1300,9 +1508,8 @@ mod tests {
 
 #[cfg(test)]
 mod integration_tests {
-    use super::*;
-    use crate::Database;
     use crate::types::Value;
+    use crate::Database;
     use std::collections::HashMap;
     use tempfile::TempDir;
 
@@ -1355,4 +1562,3 @@ mod integration_tests {
         db.close().unwrap();
     }
 }
-

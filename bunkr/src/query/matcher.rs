@@ -1,8 +1,8 @@
-use crate::types::Value;
-use crate::error::Result;
-use super::Query;
-use super::path::{parse_path, get_value_at_path};
 use super::operators::Operator;
+use super::path::{get_value_at_path, parse_path};
+use super::Query;
+use crate::error::Result;
+use crate::types::Value;
 
 /// Check if a document matches a query
 pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
@@ -20,18 +20,18 @@ pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
             if terms.is_empty() {
                 return Ok(true);
             }
-            
+
             // Extract text from document
             let mut doc_text = String::new();
             extract_text_from_value(doc, &text_query.fields, &mut doc_text);
-            
+
             // Check if all terms are in the document text
             let doc_text_lower = if text_query.case_sensitive {
                 doc_text.clone()
             } else {
                 doc_text.to_lowercase()
             };
-            
+
             for term in &terms {
                 let search_term = if text_query.case_sensitive {
                     term.clone()
@@ -49,7 +49,7 @@ pub fn matches(doc: &Value, query: &Query) -> Result<bool> {
     // Check each field in the query
     for (field_path, expected_value) in query.fields() {
         let path_segments = parse_path(field_path);
-        
+
         // Get the actual value at this path
         let actual_value = match get_value_at_path(doc, &path_segments) {
             Some(v) => v,
@@ -138,7 +138,7 @@ fn values_match(actual: &Value, expected: &Value) -> Result<bool> {
                 }
             }
             Ok(true)
-        },
+        }
         (Value::Object(a), Value::Object(b)) => {
             // For objects, check if all keys in expected exist in actual with matching values
             for (key, expected_val) in b {
@@ -152,7 +152,7 @@ fn values_match(actual: &Value, expected: &Value) -> Result<bool> {
                 }
             }
             Ok(true)
-        },
+        }
         // Type mismatch
         _ => Ok(false),
     }
@@ -180,7 +180,8 @@ mod tests {
             let mut q = HashMap::new();
             q.insert("name".to_string(), Value::String("João".to_string()));
             q
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert!(matches(&doc, &query).unwrap());
     }
@@ -197,7 +198,8 @@ mod tests {
             let mut q = HashMap::new();
             q.insert("profile.age".to_string(), Value::Int(30));
             q
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert!(matches(&doc, &query).unwrap());
     }
@@ -212,7 +214,8 @@ mod tests {
             let mut q = HashMap::new();
             q.insert("name".to_string(), Value::String("Bob".to_string()));
             q
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert!(!matches(&doc, &query).unwrap());
     }
@@ -225,9 +228,9 @@ mod tests {
             let mut q = HashMap::new();
             q.insert("name".to_string(), Value::String("João".to_string()));
             q
-        })).unwrap();
+        }))
+        .unwrap();
 
         assert!(!matches(&doc, &query).unwrap());
     }
 }
-

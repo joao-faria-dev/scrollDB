@@ -30,6 +30,7 @@ impl Database {
                 .read(true)
                 .write(true)
                 .create(true)
+                .truncate(true)
                 .open(&path)
                 .map_err(Error::Io)?
         };
@@ -79,7 +80,7 @@ impl Database {
         if self.page_manager.is_none() {
             return Err(Error::DatabaseNotOpen);
         }
-        
+
         // Create a new page manager from the file for this collection
         // This is not ideal but works for the initial implementation
         let file = OpenOptions::new()
@@ -87,10 +88,10 @@ impl Database {
             .write(true)
             .open(&self.path)
             .map_err(Error::Io)?;
-        
+
         let page_manager = PageManager::from_file(file)?;
         let collection = Collection::new(name.to_string(), page_manager, self.path.clone());
-        
+
         Ok(collection)
     }
 

@@ -4,7 +4,7 @@ use std::collections::HashMap;
 /// BSON-like Value type for documents
 ///
 /// Similar to serde_json::Value but optimized for Bunkr's needs
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Value {
     /// Null value
@@ -145,6 +145,100 @@ impl From<HashMap<String, Value>> for Value {
     }
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Null, Value::Null) => true,
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => {
+                // Handle NaN and infinity
+                if a.is_nan() && b.is_nan() {
+                    false // NaN != NaN
+                } else {
+                    a == b
+                }
+            }
+            (Value::String(a), Value::String(b)) => a == b,
+            (Value::Array(a), Value::Array(b)) => a == b,
+            (Value::Object(a), Value::Object(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Value {}
+
+impl PartialOrd for Value {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Value {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+
+        // Type-based ordering: Null < Bool < Int < Float < String < Array < Object
+        let type_order = |v: &Value| match v {
+            Value::Null => 0,
+            Value::Bool(_) => 1,
+            Value::Int(_) => 2,
+            Value::Float(_) => 3,
+            Value::String(_) => 4,
+            Value::Array(_) => 5,
+            Value::Object(_) => 6,
+        };
+
+        let self_order = type_order(self);
+        let other_order = type_order(other);
+
+        match self_order.cmp(&other_order) {
+            Ordering::Equal => {
+                // Same type, compare values
+                match (self, other) {
+                    (Value::Null, Value::Null) => Ordering::Equal,
+                    (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
+                    (Value::Int(a), Value::Int(b)) => a.cmp(b),
+                    (Value::Float(a), Value::Float(b)) => {
+                        // Handle NaN and infinity
+                        if a.is_nan() && b.is_nan() {
+                            Ordering::Equal
+                        } else if a.is_nan() {
+                            Ordering::Less // NaN is less than everything
+                        } else if b.is_nan() {
+                            Ordering::Greater
+                        } else {
+                            a.partial_cmp(b).unwrap_or(Ordering::Equal)
+                        }
+                    }
+                    (Value::String(a), Value::String(b)) => a.cmp(b),
+                    (Value::Array(a), Value::Array(b)) => {
+                        // Lexicographic comparison
+                        for (a_val, b_val) in a.iter().zip(b.iter()) {
+                            match a_val.cmp(b_val) {
+                                Ordering::Equal => continue,
+                                other => return other,
+                            }
+                        }
+                        a.len().cmp(&b.len())
+                    }
+                    (Value::Object(a), Value::Object(b)) => {
+                        // Compare as sorted key-value pairs
+                        let mut a_pairs: Vec<_> = a.iter().collect();
+                        let mut b_pairs: Vec<_> = b.iter().collect();
+                        a_pairs.sort_by_key(|(k, _)| *k);
+                        b_pairs.sort_by_key(|(k, _)| *k);
+                        a_pairs.cmp(&b_pairs)
+                    }
+                    _ => unreachable!(), // Same type order, so this shouldn't happen
+                }
+            }
+            other => other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,7 +274,10 @@ mod tests {
 
         let doc = Value::Object(map);
 
-        assert_eq!(doc.get_path("name"), Some(&Value::String("João".to_string())));
+        assert_eq!(
+            doc.get_path("name"),
+            Some(&Value::String("João".to_string()))
+        );
         assert_eq!(doc.get_path("profile.age"), Some(&Value::Int(30)));
         assert_eq!(doc.get_path("nonexistent"), None);
     }
@@ -199,4 +296,3 @@ mod tests {
         assert_eq!(value, deserialized);
     }
 }
-

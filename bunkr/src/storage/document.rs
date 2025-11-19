@@ -64,7 +64,7 @@ pub fn deserialize_document(bytes: &[u8]) -> Result<Value> {
 }
 
 /// Write a document to pages
-/// 
+///
 /// Returns the first page ID where the document was written
 pub fn write_document(
     file: &mut std::fs::File,
@@ -88,11 +88,7 @@ pub fn write_document(
     let max_page_data = PageHeader::max_data_size();
 
     // Calculate how many pages we need
-    let pages_needed = if total_needed <= max_page_data {
-        1
-    } else {
-        (total_needed + max_page_data - 1) / max_page_data
-    };
+    let pages_needed = total_needed.div_ceil(max_page_data);
 
     // Allocate pages
     let mut page_ids = Vec::with_capacity(pages_needed);
@@ -110,7 +106,11 @@ pub fn write_document(
     let mut offset = 0;
     for (i, &page_id) in page_ids.iter().enumerate() {
         let is_last = i == page_ids.len() - 1;
-        let next_page = if is_last { NO_NEXT_PAGE } else { page_ids[i + 1] };
+        let next_page = if is_last {
+            NO_NEXT_PAGE
+        } else {
+            page_ids[i + 1]
+        };
 
         // Calculate how much data fits in this page
         let page_data_size = if is_last {
@@ -134,10 +134,7 @@ pub fn write_document(
 }
 
 /// Read a document from pages starting at the given page ID
-pub fn read_document(
-    file: &mut std::fs::File,
-    first_page_id: PageId,
-) -> Result<(ObjectId, Value)> {
+pub fn read_document(file: &mut std::fs::File, first_page_id: PageId) -> Result<(ObjectId, Value)> {
     // Read first page
     let page = Page::read_from(file, first_page_id)?;
     let mut all_data = page.data.clone();
@@ -178,8 +175,21 @@ pub fn read_document(
     Ok((doc_header.object_id, value))
 }
 
+/// Extract ObjectId from page data if it contains a document header
+pub fn extract_object_id_from_page(page_data: &[u8]) -> Option<ObjectId> {
+    if page_data.len() < DocumentHeader::SIZE {
+        return None;
+    }
+
+    if let Ok(doc_header) = DocumentHeader::from_bytes(&page_data[0..DocumentHeader::SIZE]) {
+        Some(doc_header.object_id)
+    } else {
+        None
+    }
+}
+
 /// Find a document by ObjectId (linear search)
-/// 
+///
 /// Returns the first page ID if found, None otherwise
 pub fn find_document_by_id(
     file: &mut std::fs::File,
@@ -205,11 +215,13 @@ pub fn find_document_by_id(
                 continue;
             }
         };
-        
+
         if page.header.page_type == PageType::Data && !page.data.is_empty() {
             // Try to read document header
             if page.data.len() >= DocumentHeader::SIZE {
-                if let Ok(doc_header) = DocumentHeader::from_bytes(&page.data[0..DocumentHeader::SIZE]) {
+                if let Ok(doc_header) =
+                    DocumentHeader::from_bytes(&page.data[0..DocumentHeader::SIZE])
+                {
                     if doc_header.object_id == target_id {
                         return Ok(Some(current_page_id));
                     }
@@ -243,17 +255,17 @@ mod tests {
     fn create_test_file() -> (NamedTempFile, std::fs::File) {
         let temp_file = NamedTempFile::new().unwrap();
         let path = temp_file.path();
-        
+
         let mut file = fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .open(path)
             .unwrap();
-        
+
         let header = Header::new();
         header.write_to(&mut file).unwrap();
-        
+
         (temp_file, file)
     }
 
@@ -284,7 +296,11 @@ mod tests {
         let page_id = manager.allocate_page(PageType::Data).unwrap();
         let mut page_id_counter = 0u32;
         let mut allocate = || {
-            let id = if page_id_counter == 0 { page_id } else { page_id_counter };
+            let id = if page_id_counter == 0 {
+                page_id
+            } else {
+                page_id_counter
+            };
             page_id_counter += 1;
             Ok(id)
         };
@@ -349,7 +365,7 @@ mod tests {
         // Allocate pages first
         let page1_id = manager.allocate_page(PageType::Data).unwrap();
         let page2_id = manager.allocate_page(PageType::Data).unwrap();
-        
+
         // First document
         let page_ids1 = vec![page1_id];
         let mut page_id_counter1 = 0usize;
@@ -359,7 +375,7 @@ mod tests {
             Ok(id)
         };
         let page1 = write_document(manager.file(), id1, &value1, &mut allocate1).unwrap();
-        
+
         // Second document
         let page_ids2 = vec![page2_id];
         let mut page_id_counter2 = 0usize;
@@ -382,4 +398,3 @@ mod tests {
         assert_eq!(found, None);
     }
 }
-

@@ -38,9 +38,10 @@ fn py_to_value(obj: &Bound<'_, PyAny>) -> PyResult<bunkr::Value> {
         }
         Ok(bunkr::Value::Object(map))
     } else {
-        Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-            format!("Unsupported Python type: {:?}", obj.get_type()),
-        ))
+        Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+            "Unsupported Python type: {:?}",
+            obj.get_type()
+        )))
     }
 }
 
@@ -98,13 +99,15 @@ impl Database {
 
     /// Get a collection by name
     fn collection(&mut self, name: &str) -> PyResult<Collection> {
-        let coll = self.inner.collection(name)
+        let coll = self
+            .inner
+            .collection(name)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(Collection { inner: coll })
     }
 
     /// Close the database
-    /// 
+    ///
     /// This flushes any pending writes. The database will also be closed
     /// automatically when the object is garbage collected.
     fn close(&mut self) -> PyResult<()> {
@@ -135,26 +138,31 @@ impl Collection {
     }
 
     /// Insert a document into the collection
-    /// 
+    ///
     /// The document should be a Python dict. If `_id` is not provided,
     /// it will be auto-generated.
-    /// 
+    ///
     /// Returns the document ID as a string.
     fn insert_one(&mut self, doc: &Bound<'_, PyAny>) -> PyResult<String> {
         let value = py_to_value(doc)?;
-        let id = self.inner.insert_one(value)
+        let id = self
+            .inner
+            .insert_one(value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(id.to_hex())
     }
 
     /// Find a document by ID
-    /// 
+    ///
     /// Returns the document as a dict, or None if not found.
     fn find_by_id(&mut self, py: Python<'_>, id: &str) -> PyResult<Option<PyObject>> {
-        let object_id = bunkr::ObjectId::from_hex(id)
-            .map_err(|e| PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid ObjectId: {}", e)))?;
-        
-        match self.inner.find_by_id(&object_id)
+        let object_id = bunkr::ObjectId::from_hex(id).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(format!("Invalid ObjectId: {}", e))
+        })?;
+
+        match self
+            .inner
+            .find_by_id(&object_id)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?
         {
             Some(value) => Ok(Some(value_to_py(&value, py)?)),
@@ -163,59 +171,75 @@ impl Collection {
     }
 
     /// Find documents matching a query
-    /// 
+    ///
     /// Returns an iterator over matching documents.
     fn find(&mut self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<DocumentIterator>> {
         let query_value = py_to_value(query)?;
-        let iter = self.inner.find(query_value)
+        let iter = self
+            .inner
+            .find(query_value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
-        
+
         // Create a Python iterator
-        let iter = DocumentIterator {
-            inner: iter,
-        };
-        
+        let iter = DocumentIterator { inner: iter };
+
         Ok(Py::new(py, iter)?)
     }
 
     /// Update a single document matching the query
-    /// 
+    ///
     /// Returns the number of documents updated (0 or 1).
-    fn update_one(&mut self, filter: &Bound<'_, PyAny>, update: &Bound<'_, PyAny>) -> PyResult<u64> {
+    fn update_one(
+        &mut self,
+        filter: &Bound<'_, PyAny>,
+        update: &Bound<'_, PyAny>,
+    ) -> PyResult<u64> {
         let filter_value = py_to_value(filter)?;
         let update_value = py_to_value(update)?;
-        let count = self.inner.update_one(filter_value, update_value)
+        let count = self
+            .inner
+            .update_one(filter_value, update_value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(count)
     }
 
     /// Update multiple documents matching the query
-    /// 
+    ///
     /// Returns the number of documents updated.
-    fn update_many(&mut self, filter: &Bound<'_, PyAny>, update: &Bound<'_, PyAny>) -> PyResult<u64> {
+    fn update_many(
+        &mut self,
+        filter: &Bound<'_, PyAny>,
+        update: &Bound<'_, PyAny>,
+    ) -> PyResult<u64> {
         let filter_value = py_to_value(filter)?;
         let update_value = py_to_value(update)?;
-        let count = self.inner.update_many(filter_value, update_value)
+        let count = self
+            .inner
+            .update_many(filter_value, update_value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(count)
     }
 
     /// Delete a single document matching the query
-    /// 
+    ///
     /// Returns the number of documents deleted (0 or 1).
     fn delete_one(&mut self, filter: &Bound<'_, PyAny>) -> PyResult<u64> {
         let filter_value = py_to_value(filter)?;
-        let count = self.inner.delete_one(filter_value)
+        let count = self
+            .inner
+            .delete_one(filter_value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(count)
     }
 
     /// Delete multiple documents matching the query
-    /// 
+    ///
     /// Returns the number of documents deleted.
     fn delete_many(&mut self, filter: &Bound<'_, PyAny>) -> PyResult<u64> {
         let filter_value = py_to_value(filter)?;
-        let count = self.inner.delete_many(filter_value)
+        let count = self
+            .inner
+            .delete_many(filter_value)
             .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e)))?;
         Ok(count)
     }
@@ -236,9 +260,11 @@ impl DocumentIterator {
     fn __next__(mut slf: PyRefMut<'_, Self>, py: Python<'_>) -> PyResult<Option<PyObject>> {
         match slf.inner.next() {
             Some(Ok(value)) => Ok(Some(value_to_py(&value, py)?)),
-            Some(Err(e)) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{}", e))),
+            Some(Err(e)) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "{}",
+                e
+            ))),
             None => Ok(None),
         }
     }
 }
-

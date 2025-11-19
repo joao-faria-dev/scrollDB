@@ -6,7 +6,7 @@ use uuid::Uuid;
 /// MongoDB-compatible ObjectId (12 bytes)
 ///
 /// Structure: [timestamp (4 bytes)][random (8 bytes)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ObjectId([u8; 12]);
 
 impl ObjectId {
@@ -111,10 +111,10 @@ mod tests {
     fn test_new_object_id() {
         let id1 = ObjectId::new();
         let id2 = ObjectId::new();
-        
+
         // Should be different
         assert_ne!(id1, id2);
-        
+
         // Should be 12 bytes
         assert_eq!(id1.as_bytes().len(), 12);
         assert_eq!(id2.as_bytes().len(), 12);
@@ -130,9 +130,7 @@ mod tests {
     #[test]
     fn test_to_hex() {
         let id = ObjectId::from_bytes([
-            0x12, 0x34, 0x56, 0x78,
-            0x9a, 0xbc, 0xde, 0xf0,
-            0x11, 0x22, 0x33, 0x44,
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44,
         ]);
         assert_eq!(id.to_hex(), "123456789abcdef011223344");
     }
@@ -185,4 +183,3 @@ mod tests {
         assert_eq!(id, id2);
     }
 }
-

@@ -34,7 +34,7 @@ impl PageType {
 }
 
 /// Page header structure (16 bytes)
-/// 
+///
 /// Layout:
 /// - page_type: u8 (1 byte)
 /// - flags: u8 (1 byte)
@@ -87,8 +87,8 @@ impl PageHeader {
 
         let mut page_type_bytes = [0u8; 1];
         file.read_exact(&mut page_type_bytes)?;
-        let page_type = PageType::from_u8(page_type_bytes[0])
-            .ok_or_else(|| Error::CorruptedDatabase {
+        let page_type =
+            PageType::from_u8(page_type_bytes[0]).ok_or_else(|| Error::CorruptedDatabase {
                 reason: format!("Invalid page type: {}", page_type_bytes[0]),
             })?;
 
@@ -165,7 +165,7 @@ impl Page {
     /// Read a page from file
     pub fn read_from(file: &mut std::fs::File, page_id: PageId) -> Result<Self> {
         let header = PageHeader::read_from(file, page_id)?;
-        
+
         let offset = PageHeader::page_offset(page_id) + PageHeader::SIZE as u64;
         file.seek(SeekFrom::Start(offset))?;
 
@@ -186,7 +186,7 @@ impl Page {
         // Update header with current data size
         let mut header = self.header.clone();
         header.data_size = self.data.len() as u32;
-        
+
         header.write_to(file, self.id)?;
 
         // Write data
@@ -251,7 +251,7 @@ mod tests {
             .create(true)
             .open(path)
             .unwrap();
-        
+
         // Write database header first
         let db_header = crate::storage::Header::new();
         db_header.write_to(&mut file).unwrap();
@@ -267,9 +267,18 @@ mod tests {
 
     #[test]
     fn test_page_offset() {
-        assert_eq!(PageHeader::page_offset(0), crate::storage::HEADER_SIZE as u64);
-        assert_eq!(PageHeader::page_offset(1), crate::storage::HEADER_SIZE as u64 + PAGE_SIZE as u64);
-        assert_eq!(PageHeader::page_offset(10), crate::storage::HEADER_SIZE as u64 + (10 * PAGE_SIZE) as u64);
+        assert_eq!(
+            PageHeader::page_offset(0),
+            crate::storage::HEADER_SIZE as u64
+        );
+        assert_eq!(
+            PageHeader::page_offset(1),
+            crate::storage::HEADER_SIZE as u64 + PAGE_SIZE as u64
+        );
+        assert_eq!(
+            PageHeader::page_offset(10),
+            crate::storage::HEADER_SIZE as u64 + (10 * PAGE_SIZE) as u64
+        );
     }
 
     #[test]
@@ -299,7 +308,7 @@ mod tests {
             .create(true)
             .open(path)
             .unwrap();
-        
+
         let db_header = crate::storage::Header::new();
         db_header.write_to(&mut file).unwrap();
 
@@ -320,7 +329,7 @@ mod tests {
     fn test_page_available_space() {
         let mut page = Page::new(0, PageType::Data);
         assert_eq!(page.available_space(), PageHeader::max_data_size());
-        
+
         page.data = vec![0u8; 100];
         assert_eq!(page.available_space(), PageHeader::max_data_size() - 100);
     }
@@ -331,10 +340,9 @@ mod tests {
         assert!(page.has_space(100));
         assert!(page.has_space(PageHeader::max_data_size()));
         assert!(!page.has_space(PageHeader::max_data_size() + 1));
-        
+
         page.data = vec![0u8; 100];
         assert!(page.has_space(PageHeader::max_data_size() - 100));
         assert!(!page.has_space(PageHeader::max_data_size() - 99));
     }
 }
-

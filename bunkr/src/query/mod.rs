@@ -1,11 +1,11 @@
-use crate::types::Value;
 use crate::error::{Error, Result};
+use crate::types::Value;
 
-pub mod path;
 pub mod matcher;
 pub mod operators;
-pub mod update;
+pub mod path;
 pub mod text;
+pub mod update;
 
 /// Query structure for matching documents
 #[derive(Debug, Clone)]
@@ -34,7 +34,7 @@ impl Query {
             }
             _ => Err(Error::CorruptedDatabase {
                 reason: "Query must be an Object".to_string(),
-            })
+            }),
         }
     }
 
@@ -86,4 +86,3 @@ mod tests {
         assert!(result.is_err());
     }
 }
-

@@ -24,15 +24,18 @@ impl TextIndex {
         // Extract text from specified fields
         let mut text_parts = Vec::new();
         self.extract_text(doc, fields, &mut text_parts);
-        
+
         // Tokenize and index
         for text in text_parts {
             let tokens = Self::tokenize(&text);
             for token in tokens {
-                self.index.entry(token).or_insert_with(HashSet::new).insert(doc_id.to_string());
+                self.index
+                    .entry(token)
+                    .or_default()
+                    .insert(doc_id.to_string());
             }
         }
-        
+
         // Track indexed fields
         for field in fields {
             self.indexed_fields.insert(field.clone());
@@ -53,7 +56,9 @@ impl TextIndex {
         }
 
         // Start with documents containing the first term
-        let mut result = self.index.get(&terms[0])
+        let mut result = self
+            .index
+            .get(&terms[0])
             .cloned()
             .unwrap_or_else(HashSet::new);
 
@@ -137,12 +142,18 @@ mod tests {
         let mut index = TextIndex::new();
         let mut doc = Value::Object(HashMap::new());
         if let Value::Object(ref mut map) = doc {
-            map.insert("title".to_string(), Value::String("Rust Database".to_string()));
-            map.insert("content".to_string(), Value::String("Embedded storage".to_string()));
+            map.insert(
+                "title".to_string(),
+                Value::String("Rust Database".to_string()),
+            );
+            map.insert(
+                "content".to_string(),
+                Value::String("Embedded storage".to_string()),
+            );
         }
 
         index.index_document("doc1", &doc, &["title".to_string(), "content".to_string()]);
-        
+
         // Search for "rust"
         let results = index.search(&["rust".to_string()]);
         assert!(results.contains("doc1"));
@@ -153,13 +164,19 @@ mod tests {
         let mut index = TextIndex::new();
         let mut doc1 = Value::Object(HashMap::new());
         if let Value::Object(ref mut map) = doc1 {
-            map.insert("text".to_string(), Value::String("rust database".to_string()));
+            map.insert(
+                "text".to_string(),
+                Value::String("rust database".to_string()),
+            );
         }
         index.index_document("doc1", &doc1, &["text".to_string()]);
 
         let mut doc2 = Value::Object(HashMap::new());
         if let Value::Object(ref mut map) = doc2 {
-            map.insert("text".to_string(), Value::String("database embedded".to_string()));
+            map.insert(
+                "text".to_string(),
+                Value::String("database embedded".to_string()),
+            );
         }
         index.index_document("doc2", &doc2, &["text".to_string()]);
 
@@ -169,4 +186,3 @@ mod tests {
         assert!(!results.contains("doc2"));
     }
 }
-

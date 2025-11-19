@@ -146,4 +146,3 @@ mod tests {
         assert!(header.validate().is_err());
     }
 }
-

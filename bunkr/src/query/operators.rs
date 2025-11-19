@@ -1,5 +1,5 @@
-use crate::types::Value;
 use crate::error::{Error, Result};
+use crate::types::Value;
 
 /// Comparison operators for queries
 #[derive(Debug, Clone, PartialEq)]
@@ -20,7 +20,7 @@ pub enum Operator {
 
 impl Operator {
     /// Parse an operator from a JSON-like Value object
-    /// 
+    ///
     /// Example: {"$gt": 25} -> Operator::Gt(Value::Int(25))
     pub fn from_value(value: &Value) -> Result<Self> {
         match value {
@@ -38,14 +38,12 @@ impl Operator {
                     "$lt" => Ok(Operator::Lt(val.clone())),
                     "$lte" => Ok(Operator::Lte(val.clone())),
                     "$ne" => Ok(Operator::Ne(val.clone())),
-                    "$in" => {
-                        match val {
-                            Value::Array(arr) => Ok(Operator::In(arr.clone())),
-                            _ => Err(Error::CorruptedDatabase {
-                                reason: "$in operator requires an array value".to_string(),
-                            }),
-                        }
-                    }
+                    "$in" => match val {
+                        Value::Array(arr) => Ok(Operator::In(arr.clone())),
+                        _ => Err(Error::CorruptedDatabase {
+                            reason: "$in operator requires an array value".to_string(),
+                        }),
+                    },
                     _ => Err(Error::CorruptedDatabase {
                         reason: format!("Unknown operator: {}", key),
                     }),
@@ -157,7 +155,7 @@ mod tests {
         let mut map = std::collections::HashMap::new();
         map.insert("$gt".to_string(), Value::Int(25));
         let value = Value::Object(map);
-        
+
         let op = Operator::from_value(&value).unwrap();
         assert_eq!(op, Operator::Gt(Value::Int(25)));
     }
@@ -165,12 +163,15 @@ mod tests {
     #[test]
     fn test_operator_from_value_in() {
         let mut map = std::collections::HashMap::new();
-        map.insert("$in".to_string(), Value::Array(vec![
-            Value::String("admin".to_string()),
-            Value::String("user".to_string()),
-        ]));
+        map.insert(
+            "$in".to_string(),
+            Value::Array(vec![
+                Value::String("admin".to_string()),
+                Value::String("user".to_string()),
+            ]),
+        );
         let value = Value::Object(map);
-        
+
         let op = Operator::from_value(&value).unwrap();
         match op {
             Operator::In(arr) => {
@@ -205,4 +206,3 @@ mod tests {
         assert!(!op.matches(&Value::String("guest".to_string())).unwrap());
     }
 }
-

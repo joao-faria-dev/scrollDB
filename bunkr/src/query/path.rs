@@ -1,15 +1,15 @@
-use crate::types::Value;
 use crate::error::{Error, Result};
+use crate::types::Value;
 
 /// Parse a dotted path string into segments
-/// 
+///
 /// Example: "profile.age" -> ["profile", "age"]
 pub fn parse_path(path: &str) -> Vec<String> {
     path.split('.').map(|s| s.to_string()).collect()
 }
 
 /// Navigate a nested object using a path
-/// 
+///
 /// Returns the value at the path, or None if the path doesn't exist
 pub fn get_value_at_path(value: &Value, path: &[String]) -> Option<Value> {
     if path.is_empty() {
@@ -30,7 +30,7 @@ pub fn get_value_at_path(value: &Value, path: &[String]) -> Option<Value> {
 }
 
 /// Set a value at a path in a nested object
-/// 
+///
 /// Creates intermediate objects as needed
 pub fn set_value_at_path(value: &mut Value, path: &[String], new_value: Value) -> Result<()> {
     if path.is_empty() {
@@ -59,7 +59,7 @@ pub fn set_value_at_path(value: &mut Value, path: &[String], new_value: Value) -
             Ok(())
         }
         _ => Err(Error::CorruptedDatabase {
-            reason: format!("Cannot set path on non-object value"),
+            reason: "Cannot set path on non-object value".to_string(),
         }),
     }
 }
@@ -80,7 +80,7 @@ mod tests {
     fn test_get_value_at_path() {
         let mut map = HashMap::new();
         map.insert("name".to_string(), Value::String("João".to_string()));
-        
+
         let mut profile = HashMap::new();
         profile.insert("age".to_string(), Value::Int(30));
         map.insert("profile".to_string(), Value::Object(profile));
@@ -89,7 +89,10 @@ mod tests {
 
         // Test simple path
         let path = parse_path("name");
-        assert_eq!(get_value_at_path(&value, &path), Some(Value::String("João".to_string())));
+        assert_eq!(
+            get_value_at_path(&value, &path),
+            Some(Value::String("João".to_string()))
+        );
 
         // Test dotted path
         let path = parse_path("profile.age");
@@ -107,7 +110,10 @@ mod tests {
         // Set simple path
         let path = parse_path("name");
         set_value_at_path(&mut value, &path, Value::String("João".to_string())).unwrap();
-        assert_eq!(get_value_at_path(&value, &path), Some(Value::String("João".to_string())));
+        assert_eq!(
+            get_value_at_path(&value, &path),
+            Some(Value::String("João".to_string()))
+        );
 
         // Set dotted path
         let path = parse_path("profile.age");
@@ -115,4 +121,3 @@ mod tests {
         assert_eq!(get_value_at_path(&value, &path), Some(Value::Int(30)));
     }
 }
-
