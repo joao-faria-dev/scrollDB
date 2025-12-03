@@ -1,6 +1,17 @@
 [package]
-name = "scrollDB"
+name = "scroll_db"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+bincode = "2.0.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+tempfile = "3.23.0"
+thiserror = "2.0.17"
+uuid = { version = "1.18.1", features = ["v4"] }
+
+[alias]
+lint = "clippy --all-targets --all-features -- -D warnings"
+fmt-check = "fmt -- --check"
+check-all = "check --all-targets --all-features"
